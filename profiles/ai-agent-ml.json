@@ -1,0 +1,93 @@
+{
+  "domain": "ai-agent-ml",
+  "label": "AI / Agent Engineer",
+  "salary_filter_enabled": true,
+  "_note": "Primary target for Mukul — AI agents, LLM products, applied ML. Phrases match job TITLES and descriptions across boards.",
+  "phrases": [
+    "ai engineer",
+    "ai agent",
+    "agent engineer",
+    "agentic",
+    "llm engineer",
+    "genai",
+    "gen ai",
+    "generative ai",
+    "applied ai",
+    "applied scientist",
+    "ai product engineer",
+    "ai software engineer",
+    "forward deployed",
+    "forward-deployed",
+    "machine learning engineer",
+    "ml engineer",
+    "mlops",
+    "ai/ml",
+    "retrieval augmented",
+    "prompt engineer",
+    "nlp engineer",
+    "voice ai",
+    "conversational ai",
+    "ai platform",
+    "ml platform",
+    "ai infrastructure",
+    "research engineer",
+    "evaluation engineer",
+    "full stack ai",
+    "ai full stack",
+    "speech ai",
+    "speech recognition",
+    "rag engineer"
+  ],
+  "title_keywords": [
+    "ai",
+    "llm",
+    "genai",
+    "agent",
+    "agentic",
+    "machine learning",
+    "ml ",
+    "mlops",
+    "nlp",
+    "speech",
+    "voice",
+    "applied scientist",
+    "research engineer",
+    "forward deployed"
+  ],
+  "remoterocketship": {
+    "jobTitleFilters": [
+      "AI Engineer",
+      "Machine Learning Engineer"
+    ],
+    "techStackFilters": [
+      "Python",
+      "TypeScript",
+      "React",
+      "Node.js"
+    ],
+    "seniorityFilters": [
+      "mid",
+      "senior"
+    ],
+    "keywordFilters": [],
+    "excludedKeywordFilters": [
+      "intern",
+      "internship",
+      "unpaid"
+    ],
+    "locationFilters": [
+      "India",
+      "United Kingdom",
+      "Germany",
+      "Netherlands",
+      "Ireland",
+      "Spain",
+      "Portugal",
+      "Poland",
+      "France",
+      "Sweden",
+      "Singapore",
+      "United Arab Emirates"
+    ]
+  }
+}

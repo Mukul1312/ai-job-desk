@@ -1,0 +1,15 @@
+{
+  "name": "ai-job-desk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Daily ranked remote AI/agent roles with per-job notes",
+  "type": "module",
+  "dependencies": {
+    "postgres": "3.4.5"
+  },
+  "scripts": {
+    "deploy": "vercel --prod",
+    "preview": "vercel",
+    "dev": "vercel dev"
+  }
+}

@@ -1,0 +1,8 @@
+# Core pipeline — search, score, rank, report.
+# Everything here except pymupdf is optional; the pipeline degrades gracefully.
+pymupdf>=1.23.0        # .pdf resume parsing (.docx needs nothing)
+python-dotenv>=1.0.0   # reads .env; a built-in fallback parser covers its absence
+
+# Auto-apply only (apply.py / confirm.py). Dormant by default — the pipeline
+# is report-only until you opt in with auto_apply in your profile.
+# playwright>=1.40.0

@@ -1,0 +1,41 @@
+# User profiles (contain personal info + credentials)
+**/my-profile.json
+**/rajkiran-profile.json
+**/neha-profile.json
+
+# Reports
+daily_report.md
+application_results.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Playwright
+playwright-report/
+test-results/
+pending_applications.json
+applied_jobs.json
+whatsapp_applied_message.txt
+whatsapp_preview_message.txt
+applied_report.md
+*-profile.json
+.venv/
+rajkiran-profile.json
+neha-profile.json
+.env
+
+# Generated artifacts
+tailored_resumes/
+india_hiring_cache.json
+.env.example.local
+
+# Fetched job snapshots (bulky; includes paid API data)
+data/
+
+# Vercel site
+web/node_modules/
+web/.vercel/
+web/public/data/

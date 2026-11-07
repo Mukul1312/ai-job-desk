@@ -1,0 +1,154 @@
+{
+  "remotive": {
+    "enabled": true,
+    "type": "api",
+    "base_url": "https://remotive.com/api/remote-jobs",
+    "category_map": {
+      "ai-ml": "ai-ml",
+      "qa-automation": "qa",
+      "software-dev": "software-development",
+      "devops": "devops"
+    },
+    "cache_hours": 0
+  },
+  "remoteok": {
+    "enabled": true,
+    "type": "api",
+    "base_url": "https://remoteok.com/api",
+    "filter_mode": "client-side-phrases",
+    "cache_hours": 0
+  },
+  "jobicy": {
+    "enabled": true,
+    "type": "api",
+    "base_url": "https://jobicy.com/api/v2/remote-jobs",
+    "tag_map": {
+      "ai-ml": [
+        "machine-learning",
+        "ai",
+        "data-science",
+        "nlp",
+        "deep-learning",
+        "llm"
+      ],
+      "qa-automation": [
+        "qa",
+        "automation",
+        "testing"
+      ],
+      "software-dev": [
+        "javascript",
+        "python",
+        "backend"
+      ],
+      "devops": [
+        "devops",
+        "kubernetes",
+        "cloud"
+      ]
+    },
+    "cache_hours": 0
+  },
+  "weworkremotely": {
+    "enabled": false,
+    "type": "rss",
+    "feeds": {
+      "ai-ml": [
+        "https://weworkremotely.com/categories/remote-programming-jobs.rss",
+        "https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss"
+      ],
+      "qa-automation": [
+        "https://weworkremotely.com/categories/remote-programming-jobs.rss",
+        "https://weworkremotely.com/remote-jobs.rss"
+      ],
+      "software-dev": [
+        "https://weworkremotely.com/categories/remote-programming-jobs.rss"
+      ],
+      "devops": [
+        "https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss"
+      ]
+    },
+    "filter_mode": "client-side-phrases",
+    "note": " [disabled for ai-agent-ml profile]"
+  },
+  "himalayas": {
+    "enabled": true,
+    "type": "api",
+    "base_url": "https://himalayas.app/jobs/api",
+    "note": "API ignores q param — client-side title filtering only. Paginated via offset.",
+    "filter_mode": "client-side-title",
+    "pages": 10,
+    "cache_hours": 0
+  },
+  "realworkfromanywhere": {
+    "enabled": false,
+    "feeds": {
+      "ai-ml": [
+        "https://www.realworkfromanywhere.com/remote-ai-jobs/rss.xml",
+        "https://www.realworkfromanywhere.com/remote-data-jobs/rss.xml"
+      ],
+      "qa-automation": [
+        "https://www.realworkfromanywhere.com/remote-quality-assurance-jobs/rss.xml"
+      ]
+    },
+    "note": "Hand-curated WFA-only board. Every listing guarantees no location restriction. [disabled for ai-agent-ml profile]"
+  },
+  "workingnomads": {
+    "enabled": true,
+    "api_url": "https://www.workingnomads.com/api/exposed_jobs/",
+    "category_tags": {
+      "ai-ml": [
+        "machine learning",
+        "ai",
+        "data science",
+        "nlp",
+        "llm",
+        "generative",
+        "mlops"
+      ],
+      "qa-automation": [
+        "qa",
+        "quality assurance",
+        "test automation",
+        "testing"
+      ]
+    },
+    "note": "Global remote job board with JSON API. No location restrictions.",
+    "cache_hours": 0
+  },
+  "remoteai": {
+    "enabled": false,
+    "note": "JS-rendered SPA — no RSS or public API available. Disabled."
+  },
+  "remote100k": {
+    "enabled": false,
+    "note": "Framer SPA — no RSS or public API available. Disabled."
+  },
+  "gethired": {
+    "enabled": true,
+    "type": "api",
+    "base_url": "https://gethired.devhub.co.in/api/jobs",
+    "max_pages": 6,
+    "page_size": 500,
+    "note": "Indian board. Public cursor-paginated API, no key. Server-side search params are ignored, so filtering is client-side.",
+    "cache_hours": 0
+  },
+  "hn_hiring": {
+    "enabled": true,
+    "type": "api",
+    "base_url": "https://hn.algolia.com/api/v1",
+    "max_posts": 400,
+    "note": "Monthly 'Ask HN: Who is hiring?' via the public Algolia API. Stands in for YC Work at a Startup, which returns 406 to non-browser clients.",
+    "cache_hours": 0
+  },
+  "remoterocketship": {
+    "enabled": true,
+    "type": "api",
+    "base_url": "https://www.remoterocketship.com/api/openclaw/jobs",
+    "max_pages": 2,
+    "requires_env": "REMOTEROCKETSHIP_API_KEY",
+    "note": "Paid subscription API. Queried once per region in profiles/*.remoterocketship.locationFilters, since the response carries no geography. Budget: regions x max_pages x 50 jobs against a 3000-job / 500-request daily cap.",
+    "cache_hours": 20,
+    "_cache_note": "Paid + capped at 3000 jobs/500 requests per UTC day. Snapshots are reused for 20h so re-running the pipeline costs nothing. Set to 0 to force a live fetch."
+  }
+}

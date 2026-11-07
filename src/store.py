@@ -222,6 +222,86 @@ def latest_snapshot_date():
 
 # ── "what is new" tracking ───────────────────────────────────────────────────
 
+# ── paid-quota learning log ──────────────────────────────────────────────────
+#
+# Which regions are worth their quota is an empirical question, and the answer
+# will drift as the market and the profile change. Rather than re-deciding it
+# from memory every few weeks, every paid request records what it cost and
+# what it produced, so the config can be tuned from evidence.
+
+QUOTA_LOG = DATA_DIR / "quota_log.jsonl"
+
+
+def log_quota(rows):
+    """Append one record per region per run. Never raises: logging must not
+    be able to fail a run that already spent the quota."""
+    if not rows:
+        return
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with QUOTA_LOG.open("a", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps({"ts": stamp, "date": _today(), **r},
+                                   ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"  quota log not written: {e}")
+
+
+def read_quota_log():
+    if not QUOTA_LOG.exists():
+        return []
+    out = []
+    try:
+        for line in QUOTA_LOG.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    out.append(json.loads(line))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return out
+
+
+def quota_report():
+    """
+    Per-region: what it cost and what survived to the shortlist.
+
+    `ranked per 100 billed` is the number that should drive the region list.
+    A region returning plenty of jobs that never rank is paying for noise;
+    one returning few that nearly all rank is earning its place.
+    """
+    rows = read_quota_log()
+    if not rows:
+        return "  no paid runs logged yet"
+
+    agg = {}
+    for r in rows:
+        a = agg.setdefault(r.get("region") or "?",
+                           {"runs": 0, "billed": 0, "unique": 0, "ranked": 0})
+        a["runs"] += 1
+        a["billed"] += int(r.get("billed") or 0)
+        a["unique"] += int(r.get("unique") or 0)
+        a["ranked"] += int(r.get("ranked") or 0)
+
+    lines = [f"  {'region':<24}{'runs':>5}{'billed':>8}{'unique':>8}"
+             f"{'ranked':>8}{'dup%':>7}{'ranked/100':>12}"]
+    lines.append("  " + "-" * 72)
+    for name, a in sorted(agg.items(), key=lambda x: -x[1]["ranked"]):
+        dup = 0 if not a["billed"] else round(
+            100 * (a["billed"] - a["unique"]) / a["billed"])
+        per100 = 0 if not a["billed"] else round(100 * a["ranked"] / a["billed"], 1)
+        lines.append(f"  {name[:23]:<24}{a['runs']:>5}{a['billed']:>8}"
+                     f"{a['unique']:>8}{a['ranked']:>8}{dup:>6}%{per100:>12}")
+    tot = {k: sum(a[k] for a in agg.values()) for k in ("billed", "unique", "ranked")}
+    lines.append("  " + "-" * 72)
+    lines.append(f"  {'TOTAL':<24}{'':>5}{tot['billed']:>8}{tot['unique']:>8}"
+                 f"{tot['ranked']:>8}")
+    return "\n".join(lines)
+
+
 def load_seen():
     if SEEN_FILE.exists():
         try:
@@ -323,3 +403,8 @@ if __name__ == "__main__":
                 pass
     seen = load_seen()
     print(f"Seen URLs: {len(seen)}")
+    rows = read_quota_log()
+    if rows:
+        print()
+        print("Paid-source efficiency (cumulative):")
+        print(quota_report())

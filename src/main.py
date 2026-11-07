@@ -124,6 +124,25 @@ def main():
         if enrich_epfo(ranked, profile_config):
             rescore(ranked, profile_config)
 
+    # Close the loop on the paid source: attribute what actually ranked back
+    # to the region that was billed for it, so the region list can be tuned
+    # from evidence instead of argued about.
+    try:
+        import search as _search
+        if _search.RR_REGION_STATS:
+            ranked_by_region = {}
+            for j in ranked:
+                if str(j.get("source", "")).startswith("RemoteRocketship"):
+                    r = j.get("location") or "(all)"
+                    ranked_by_region[r] = ranked_by_region.get(r, 0) + 1
+            for row in _search.RR_REGION_STATS:
+                row["ranked"] = ranked_by_region.get(row["region"], 0)
+            store.log_quota(_search.RR_REGION_STATS)
+            print("\nPaid-source efficiency (cumulative):")
+            print(store.quota_report())
+    except Exception as e:
+        print(f"  quota accounting skipped: {e}")
+
     print("\nAnalysing skill gaps...")
     gap_analysis = analyze_gaps(ranked, known_skills)
     gap_analysis["known_skills"] = known_skills

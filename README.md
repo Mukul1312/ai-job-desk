@@ -190,6 +190,36 @@ Two separate routes, for different jobs:
 1. **Pipeline** — put a Supabase JWT in `.env` as `GETHIRED_TOKEN`. `fetch_gethired` already sends it and already tries `description` → `job_description` → `jd` → `full_description` → `ai_summary` → synthesised stub. Token lives in browser localStorage under `sb-vehnycoyrmqdfywybboc-auth-token`, expires ~1h. **Unverified** — we never had credits to confirm the authenticated response actually includes descriptions. Test that first before building refresh handling.
 2. **Conversational** — `claude mcp add --transport http gethired https://gethired.devhub.co.in/api/mcp`, needs an interactive session for OAuth. Gives semantic search and "job twins" to Claude; does **not** feed `src/search.py`.
 
+### Learning how to spend the quota
+
+The region list, page depth and filters are **not settled** — the right answer
+depends on what the market actually returns, and it drifts. So every paid
+request records what it cost and what it produced:
+
+```
+data/quota_log.jsonl        one row per region per run
+python src/store.py         prints the cumulative report
+```
+
+```
+  region                   runs  billed  unique  ranked   dup%  ranked/100
+  ------------------------------------------------------------------------
+  India                       2     200     192      39     4%        19.5
+  Germany                     2     200     120      26    40%        13.0
+  United Kingdom              2     200     140      20    30%        10.0
+  Singapore                   2     200     178       9    11%         4.5
+  United Arab Emirates        2     200     184       1     8%         0.5
+```
+
+**`ranked/100` is the number that should drive the region list** — how many
+jobs reach your shortlist per 100 jobs billed. A region returning plenty that
+never rank is paying for noise; one returning few that nearly all rank earns
+its place. `dup%` shows how much a region overlaps with the others already in
+the list.
+
+Give it a week before changing anything. One day of data is noise, and the
+current five regions are a starting hypothesis, not a conclusion.
+
 ### Quota discipline
 
 RemoteRocketship bills **jobs returned, not unique jobs**, and the API carries no

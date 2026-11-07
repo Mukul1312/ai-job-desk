@@ -1151,6 +1151,12 @@ class _RRQuotaExhausted(Exception):
     """Account-wide stop condition (429/401/403) — not a per-region failure."""
 
 
+# Filled by fetch_remoterocketship, completed after ranking, then logged.
+# Which regions earn their quota is an empirical question whose answer drifts,
+# so it gets measured every run instead of re-argued from memory.
+RR_REGION_STATS = []
+
+
 
 def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
     """
@@ -1187,8 +1193,17 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
     done = 0
     for region in regions:
         try:
-            results.extend(_rr_fetch_region(key, rr, region, min_usd,
-                                            max_pages, seen_urls, raw_records))
+            before_billed, before_unique = len(raw_records), len(results)
+            got = _rr_fetch_region(key, rr, region, min_usd,
+                                   max_pages, seen_urls, raw_records)
+            results.extend(got)
+            RR_REGION_STATS.append({
+                "source": "remoterocketship",
+                "region": region or "(all)",
+                "billed": len(raw_records) - before_billed,
+                "unique": len(results) - before_unique,
+                "ranked": 0,          # filled in after ranking
+            })
             done += 1
         except _RRQuotaExhausted as e:
             print(f"  RemoteRocketship: stopping after {done}/{len(regions)} "
@@ -1209,8 +1224,9 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
             print(f"  RemoteRocketship: raw archive failed ({e})")
 
     dupes = len(raw_records) - len(results)
+    pct = f", {round(100*dupes/len(raw_records))}% dup" if raw_records and dupes else ""
     print(f"  RemoteRocketship: {len(results)} unique jobs across {done} region(s)"
-          + (f" — {len(raw_records)} billed, {dupes} duplicate" if dupes > 0 else ""))
+          + (f" — {len(raw_records)} billed{pct}" if raw_records else ""))
     return results
 
 

@@ -22,12 +22,24 @@ Most job scrapers answer *"does this JD match my skills?"*. That question is eas
 
 ```bash
 cp .env.example .env          # optional keys; everything works without them
-pip install pymupdf python-dotenv
+pip install -r requirements.txt
 
-python src/main.py \
-  --profile-config mukul-profile.json \
-  --profile-meta profiles/ai-agent-ml.json \
-  --output daily_report.md
+./run.sh                      # search, back up, deploy
+```
+
+`run.sh` is the whole loop. Useful variants:
+
+```bash
+./run.sh --offline            # replay today's snapshots: no network, no quota
+./run.sh --no-deploy          # report only
+./run.sh --new-only           # only what you have not seen before
+```
+
+Or drive the pipeline directly:
+
+```bash
+python src/main.py --profile-config mukul-profile.json \
+  --profile-meta profiles/ai-agent-ml.json --output daily_report.md
 ```
 
 No cron, no agent framework. Run it when you sit down to apply.
@@ -122,6 +134,30 @@ python src/store.py                   # what is on disk
 `--offline` is the one to use while tuning the scorer: re-rank historical pulls instantly without spending a single API call.
 
 Snapshots are pruned after 30 days (`--prune-days`) and `data/` is gitignored — it contains paid API data.
+
+---
+
+## Data backup
+
+`data/` is gitignored here and versioned in a **separate private repo**. Those
+snapshots include paid, rate-capped RemoteRocketship data, so losing them means
+re-buying quota already spent — and `--prune-days` deletes local copies on a
+schedule.
+
+```bash
+cd data
+git init -b main
+gh repo create <you>/ai-job-desk-data --private
+git remote add origin https://github.com/<you>/ai-job-desk-data.git
+git add -A && git commit -m "data: first snapshot" && git push -u origin main
+```
+
+`run.sh` commits and pushes it on every run, **before** deploying — a failed
+deploy must never cost you data the quota already paid for.
+
+Private and separate on purpose: these files record which roles you are looking
+at and which you have already seen. Nothing secret, but nobody else's business,
+and at ~400 KB a day it would bloat a public history fast.
 
 ---
 

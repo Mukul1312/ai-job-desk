@@ -121,6 +121,7 @@ data/
 |---|---|
 | `cache_hours: 20` on RemoteRocketship | re-running the pipeline reuses today's pull instead of re-buying it |
 | `cache_hours: 0` on free sources | refetching costs nothing, so stay current |
+| **Raw provider responses archived** | normalisation keeps ~a dozen fields and drops the rest; for a paid source that means a field nobody anticipated could only be recovered by buying the data again. `<source>.raw.json.gz` holds the response verbatim, deduplicated and gzipped |
 | **Empty results are never cached** | a zero means quota/auth/outage, not "no jobs" — caching it would silently disable the source for the whole window |
 | **Failed fetch falls back to the last good snapshot** | week-old postings are still open; nothing is not. Marked `STALE` in output |
 | `seen.json` | marks each job **NEW** vs carried over, so you triage what you have not seen |
@@ -191,7 +192,25 @@ Two separate routes, for different jobs:
 
 ### Quota discipline
 
-A full RemoteRocketship run is 12 regions × 2 pages × 50 = **1,200 jobs / 24 requests**, so roughly **two live runs per day** before the 3,000-job cap. Use `--offline` for everything else — it replays snapshots in under a second and spends nothing.
+RemoteRocketship bills **jobs returned, not unique jobs**, and the API carries no
+geography — so each region is a separate request, and a role open to several of
+them is charged once per region.
+
+At twelve regions that was 1,200 jobs / 24 requests per run, of which only ~347
+were unique: **~71% of the daily cap spent on duplicate rows**, and two runs a
+day before lockout. The list is now five non-overlapping anchors — India, UK,
+Germany (CET proxy for EU-wide listings), Singapore, UAE:
+
+| | 12 regions | 5 regions |
+|---|---|---|
+| per run | 1,200 jobs / 24 req | **500 jobs / 10 req** |
+| runs per day | 2 | **6** |
+
+Adding neighbours mostly re-bills the same EU-wide roles Germany already
+returns. Add one only when a run shows real listings being missed.
+
+Use `--offline` for everything else — it replays snapshots in under a second
+and spends nothing.
 
 ---
 

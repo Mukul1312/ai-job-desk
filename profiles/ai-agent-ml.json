@@ -120,15 +120,9 @@
       "India",
       "United Kingdom",
       "Germany",
-      "Netherlands",
-      "Ireland",
-      "Spain",
-      "Portugal",
-      "Poland",
-      "France",
-      "Sweden",
       "Singapore",
       "United Arab Emirates"
-    ]
+    ],
+    "_locations_note": "One billed request per region, and a multi-region role is billed once per region it matches. Adding neighbours (Netherlands, Ireland, France, Spain, Portugal, Poland, Sweden) mostly re-bills the same EU-wide listings that Germany already returns. Add one only if a run shows real roles being missed."
   }
 }

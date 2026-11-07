@@ -1183,21 +1183,38 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
     # fabricated signal, not a generous one.
     regions = rr.get("locationFilters") or [None]
     results, seen_urls = [], set()
+    raw_records = []
     done = 0
     for region in regions:
         try:
             results.extend(_rr_fetch_region(key, rr, region, min_usd,
-                                            max_pages, seen_urls))
+                                            max_pages, seen_urls, raw_records))
             done += 1
         except _RRQuotaExhausted as e:
             print(f"  RemoteRocketship: stopping after {done}/{len(regions)} "
                   f"regions — {e}")
             break
-    print(f"  RemoteRocketship: {len(results)} jobs across {done} region(s)")
+
+    # Archive what the provider actually sent, before normalisation drops
+    # the fields this pipeline does not use yet. Quota is the scarce thing
+    # here, not disk: a field nobody anticipated must never cost a re-fetch.
+    if raw_records:
+        try:
+            import store
+            p = store.save_raw("remoterocketship", raw_records)
+            if p:
+                kb = p.stat().st_size // 1024
+                print(f"  RemoteRocketship: archived raw response ({kb} KB gz)")
+        except Exception as e:
+            print(f"  RemoteRocketship: raw archive failed ({e})")
+
+    dupes = len(raw_records) - len(results)
+    print(f"  RemoteRocketship: {len(results)} unique jobs across {done} region(s)"
+          + (f" — {len(raw_records)} billed, {dupes} duplicate" if dupes > 0 else ""))
     return results
 
 
-def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls):
+def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls, raw_sink=None):
     """Page through one RemoteRocketship region. See fetch_remoterocketship."""
     results, page = [], 1
     while page <= max_pages:
@@ -1264,6 +1281,8 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls):
         openings = data.get("jobOpenings", [])
         if not openings:
             break
+        if raw_sink is not None:
+            raw_sink.extend(openings)
 
         for j in openings:
             comp = j.get("company") or {}
@@ -1313,8 +1332,22 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls):
                 "tags": ", ".join((j.get("techStack") or [])[:6]),
                 "description": desc,
                 "seniority": seniority,
+                # A role demanding fluent German in Berlin is a non-starter;
+                # that was being discarded at fetch time.
+                "required_languages": j.get("requiredLanguages") or [],
+                "employment_type": safe_str(j.get("employmentType", "")),
+                "experience_months": j.get("experienceRequirementsMonthsOfExperience"),
+                "degree_required": safe_str(
+                    j.get("educationRequirementsCredentialCategory", "")),
+                "experience_in_place_of_education": j.get("experienceInPlaceOfEducation"),
+                "valid_until": safe_str(j.get("validUntilDate", "")),
+                "benefits": safe_str(j.get("benefits", ""))[:600],
                 "company_linkedin": safe_str(comp.get("linkedInURL", "")),
+                "company_site": safe_str(comp.get("homePageURL", "")),
                 "company_size": safe_str(comp.get("employeeRange", "")),
+                "company_industry": safe_str(comp.get("industry", "")),
+                "company_funding": safe_str(comp.get("totalFundingAmount", "")),
+                "company_founded": comp.get("foundedYear"),
                 "sponsors_h1b": comp.get("sponsorsH1B"),
                 "sponsors_uk_visa": comp.get("sponsorsUKSkilledWorkerVisa"),
                 "source": "RemoteRocketship",

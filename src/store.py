@@ -23,7 +23,7 @@ Layout:
 Snapshots are the raw normalised dicts, before scoring or ranking, so a
 re-run can apply new logic to old data.
 """
-import json, shutil
+import gzip, json, shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -64,6 +64,62 @@ def save_source(source, jobs, date_str=None):
     }
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     return path
+
+
+def save_raw(source, records, date_str=None, key="id"):
+    """
+    Archive the provider's own response, before any normalisation.
+
+    The normalised job shape keeps the dozen fields the pipeline uses today
+    and drops the rest — benefits, employmentType, requiredLanguages,
+    experienceRequirementsMonthsOfExperience, most of company{}. For a free
+    board that is fine; refetching costs nothing. For a paid, quota-capped
+    source it means a field nobody thought to keep can only be recovered by
+    buying the data a second time.
+
+    Deduplicated by `key` because the same job comes back once per region
+    query, and gzipped because full descriptions are bulky and this is
+    committed to a git repo daily.
+    """
+    if not records:
+        return None
+    date_str = date_str or _today()
+    d = _dir_for(date_str)
+    d.mkdir(parents=True, exist_ok=True)
+
+    seen, unique = set(), []
+    for r in records:
+        k = r.get(key) if isinstance(r, dict) else None
+        if k is not None:
+            if k in seen:
+                continue
+            seen.add(k)
+        unique.append(r)
+
+    path = d / f"{_slug(source)}.raw.json.gz"
+    payload = {
+        "source": source,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "returned": len(records),
+        "unique": len(unique),
+        "records": unique,
+    }
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+    return path
+
+
+def load_raw(source, date_str=None):
+    """Read an archived provider response back."""
+    date_str = date_str or _today()
+    path = _dir_for(date_str) / f"{_slug(source)}.raw.json.gz"
+    if not path.exists():
+        return None
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 
 def load_source(source, date_str=None):
@@ -147,6 +203,8 @@ def load_all_sources(date_str=None):
         return []
     jobs = []
     for path in sorted(d.glob("*.json")):
+        if path.name.endswith(".raw.json"):
+            continue
         try:
             blob = json.loads(path.read_text(encoding="utf-8"))
             jobs.extend(blob.get("jobs", []))
@@ -222,6 +280,7 @@ def stats():
         return {"days": 0, "files": 0, "jobs": 0, "mb": 0.0}
     days = [d for d in RAW_DIR.iterdir() if d.is_dir()]
     files = [f for d in days for f in d.glob("*.json")]
+    raws = [f for d in days for f in d.glob("*.raw.json.gz")]
     total_jobs, size = 0, 0
     for f in files:
         size += f.stat().st_size
@@ -229,8 +288,10 @@ def stats():
             total_jobs += json.loads(f.read_text(encoding="utf-8")).get("count", 0)
         except Exception:
             pass
+    raw_size = sum(f.stat().st_size for f in raws)
     return {"days": len(days), "files": len(files), "jobs": total_jobs,
-            "mb": round(size / 1_048_576, 2)}
+            "mb": round(size / 1_048_576, 2),
+            "raw_files": len(raws), "raw_mb": round(raw_size / 1_048_576, 2)}
 
 
 def _slug(name):
@@ -248,6 +309,9 @@ if __name__ == "__main__":
     s = stats()
     print(f"Snapshots: {s['days']} day(s), {s['files']} file(s), "
           f"{s['jobs']} jobs, {s['mb']} MB")
+    if s.get("raw_files"):
+        print(f"Raw API:   {s['raw_files']} archive(s), {s['raw_mb']} MB "
+              f"(gzipped provider responses, nothing dropped)")
     latest = latest_snapshot_date()
     if latest:
         print(f"Latest:    {latest}")

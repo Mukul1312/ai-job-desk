@@ -1151,6 +1151,44 @@ class _RRQuotaExhausted(Exception):
     """Account-wide stop condition (429/401/403) — not a per-region failure."""
 
 
+# RemoteRocketship's caps reset at 00:00 UTC, which is 05:30 IST — so a run
+# late in the local evening is still inside the UTC day that was already
+# spent. Saying when it reopens turns a confusing empty result into a
+# scheduling fact.
+RR_DAILY_JOBS = 3000
+RR_DAILY_REQUESTS = 500
+
+
+def _utc_reset_in():
+    """(hours, minutes, reset_dt_utc) until the daily quota rolls over."""
+    from datetime import datetime, timedelta, timezone as _tz
+    now = datetime.now(_tz.utc)
+    nxt = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0,
+                                            microsecond=0)
+    secs = int((nxt - now).total_seconds())
+    return secs // 3600, (secs % 3600) // 60, nxt
+
+
+def _rr_spent_today():
+    """Jobs and requests already billed in this UTC day, from the quota log."""
+    try:
+        import store
+        today = datetime_utc_date()
+        jobs = reqs = 0
+        for r in store.read_quota_log():
+            if r.get("date") == today and r.get("source") == "remoterocketship":
+                jobs += int(r.get("billed") or 0)
+                reqs += 1
+        return jobs, reqs
+    except Exception:
+        return 0, 0
+
+
+def datetime_utc_date():
+    from datetime import datetime, timezone as _tz
+    return datetime.now(_tz.utc).strftime("%Y-%m-%d")
+
+
 # Filled by fetch_remoterocketship, completed after ranking, then logged.
 # Which regions earn their quota is an empirical question whose answer drifts,
 # so it gets measured every run instead of re-argued from memory.
@@ -1188,6 +1226,15 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
     # makes every job look India-eligible and 9h-overlapping, which is a
     # fabricated signal, not a generous one.
     regions = rr.get("locationFilters") or [None]
+    planned = len(regions) * max_pages * 50
+    spent_jobs, spent_reqs = _rr_spent_today()
+    if spent_jobs and spent_jobs + planned > RR_DAILY_JOBS:
+        h, m, nxt = _utc_reset_in()
+        print(f"  RemoteRocketship: skipped — {spent_jobs:,}/{RR_DAILY_JOBS:,} jobs "
+              f"already billed this UTC day, this run needs {planned:,} more.")
+        print(f"      Quota resets in {h}h {m}m ({nxt:%H:%M} UTC / 05:30 IST).")
+        return []
+
     results, seen_urls = [], set()
     raw_records = []
     done = 0
@@ -1208,6 +1255,10 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
         except _RRQuotaExhausted as e:
             print(f"  RemoteRocketship: stopping after {done}/{len(regions)} "
                   f"regions — {e}")
+            if "limit" in str(e).lower() or "quota" in str(e).lower():
+                h, m, nxt = _utc_reset_in()
+                print(f"      Daily cap is per UTC day. Resets in {h}h {m}m "
+                      f"({nxt:%H:%M} UTC / 05:30 IST) — not at local midnight.")
             break
 
     # Archive what the provider actually sent, before normalisation drops

@@ -22,8 +22,10 @@ for a in "$@"; do
 done
 
 echo "── search ─────────────────────────────────────────────"
+RUNLOG="$(mktemp 2>/dev/null || echo ./.runlog)"
 python src/main.py --profile-config "$PROFILE" --profile-meta "$META" \
-  --output daily_report.md "${ARGS[@]+"${ARGS[@]}"}" || exit 1
+  --output daily_report.md "${ARGS[@]+"${ARGS[@]}"}" 2>&1 | tee "$RUNLOG"
+[ "${PIPESTATUS[0]}" = "0" ] || { rm -f "$RUNLOG"; exit 1; }
 
 # Back up before deploying. These snapshots include paid, rate-capped data;
 # re-fetching them costs quota that is already spent, so they get committed
@@ -53,5 +55,17 @@ if [ "$DEPLOY" = "1" ]; then
 fi
 
 echo
+# The paid source failing is easy to miss in a long scroll, and its cap resets
+# at 00:00 UTC — 05:30 IST — not at local midnight. That gap is what makes a
+# late-evening run look mysteriously empty.
+if grep -qiE "RemoteRocketship:.*(skipped|Daily request limit|stopping after)" "$RUNLOG" 2>/dev/null; then
+  echo "  !! RemoteRocketship did NOT contribute to this run:"
+  grep -iE "RemoteRocketship:.*(skipped|Daily request limit|stopping after)|Quota resets|Daily cap is per UTC" "$RUNLOG" \
+    | sed 's/^ */     /' | head -4
+  echo "     Everything else ran. Rerun after the reset to pick up paid listings."
+  echo
+fi
+rm -f "$RUNLOG" 2>/dev/null
+
 echo "  Site:   https://ai-job-desk.vercel.app"
 echo "  Report: daily_report.md"

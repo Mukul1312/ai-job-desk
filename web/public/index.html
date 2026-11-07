@@ -399,6 +399,16 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
   }
   function labelOf(v){for(var i=0;i<STATUSES.length;i++)if(STATUSES[i][0]===v)return STATUSES[i][1];return v}
 
+  /* Not every link is a careers page. An HN hiring post opens a comment
+     thread you still have to read for the real apply route, and a board
+     listing opens that board — saying so avoids a surprise in a new tab. */
+  function linkLabel(j){
+    var u=String(j.url||"");
+    if(u.indexOf("news.ycombinator.com")>-1)return "Read the HN post";
+    if(u.indexOf("gethired.devhub.co.in")>-1)return "Open on GetHired";
+    return "Open listing";
+  }
+
   function render(){
     var list=visible(),host=$("roster");
     $("count").textContent=list.length+" shown";
@@ -427,10 +437,12 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
 
   function detail(j,k,n){
     var facts=[
+      ["Source",esc(j.source)||"—"],
       ["Fit score",j.fit!=null?j.fit+" / 100":"not graded"],
       ["Overlap",j.overlap!=null?j.overlap+" h a day"+(j.tzName?" · "+esc(j.tzName):""):"no restriction"],
       ["Salary",j.lpa!=null?j.lpaLow+"–"+j.lpaHigh+" LPA":"not stated"],
       ["Send resume",j.resume?esc(j.resume):"—"],
+      ["Location",esc(j.location)||"—"],
       ["Posted",esc(j.posted)||"—"],
       ["First seen",(esc(j.firstSeen)||"—")+(j.isNew?" (new)":"")]
     ];
@@ -441,7 +453,8 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
         "</strong>"+j.indiaWhy.map(function(w){return "<span>· "+esc(w)+"</span>"}).join("")+"</div>":"")+
       (j.snippet?'<div class="snip">'+esc(j.snippet)+"…</div>":
         '<div class="snip">No description was published for this role, so it could not be graded. Open the listing to judge it yourself.</div>')+
-      '<div class="acts">'+(j.url?'<a class="apply" href="'+esc(j.url)+'" target="_blank" rel="noopener">Open listing ↗</a>':"")+
+      '<div class="acts">'+(j.url?'<a class="apply" href="'+esc(j.url)+'" target="_blank" rel="noopener">'+
+        esc(linkLabel(j))+" ↗</a>":"")+
         '<span class="stat-btns">'+STATUSES.map(function(s){
           return '<button class="chip" type="button" data-act="status" data-v="'+s[0]+
             '" aria-pressed="'+((n.status||"none")===s[0])+'">'+esc(s[1])+"</button>"}).join("")+

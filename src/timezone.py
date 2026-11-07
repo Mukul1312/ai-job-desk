@@ -134,6 +134,9 @@ WFA_PHRASES = [
 
 # "Remote (Europe)" style hints that name a region but no city.
 REGION_FALLBACK = {
+    # EEA/EU are hiring blocs, not timezones; anchor them to CET, which is
+    # where most of their population and working hours sit.
+    "eea": ("Europe/Berlin", "emea"),
     "emea": ("Europe/Berlin", "emea"),
     "europe": ("Europe/Berlin", "emea"),
     "european": ("Europe/Berlin", "emea"),

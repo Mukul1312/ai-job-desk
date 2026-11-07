@@ -951,6 +951,53 @@ _HN_FIELD = {
 }
 
 
+# "REMOTE (EEA)" and "Remote - US only" are restrictions, not worldwide roles.
+# Treating them as unrestricted inflates the timezone score and, worse, hides
+# that the employer cannot hire outside that bloc.
+_HN_SCOPE = re.compile(
+    r'(?i)\bremote\b[\s(\[-]*'
+    r'(eea|eu|emea|europe[a-z]*|uk|united kingdom|us|usa|united states|'
+    r'north america|latam|apac|asia|anywhere|worldwide|global|'
+    r'cet|cest|est|pst|gmt|utc[+\-0-9]*)')
+_HN_ONLY = re.compile(
+    r'(?i)\b(eea|eu|emea|europe|uk|us|usa|united states|canada|latam|apac|'
+    r'india|germany|netherlands|poland|spain|portugal)\b[ -]*only')
+
+
+def _hn_location(text, parts, low):
+    """
+    Best-effort location from a free-form HN hiring post.
+
+    Posts rarely use a "Location:" field; most encode it in the pipe header
+    ("Acme | Role | REMOTE (EEA)"). Defaulting any post containing the word
+    "remote" to Worldwide is wrong often enough to matter, so look for an
+    explicit scope first and only fall back when there is genuinely none.
+    """
+    m = _HN_FIELD["location"].search(text)
+    if m and m.group(1).strip():
+        return m.group(1).strip()[:70]
+
+    m = _HN_ONLY.search(text)
+    if m:
+        return f"{m.group(1).upper()} only"
+
+    # A pipe segment that names remoteness plus a region is the usual form.
+    for p in parts[1:6]:
+        if _HN_SCOPE.search(p):
+            return p.strip()[:70]
+    m = _HN_SCOPE.search(text)
+    if m:
+        return f"Remote ({m.group(1)})"
+
+    mr = _HN_FIELD["remote"].search(text)
+    if mr and mr.group(1).strip():
+        return mr.group(1).strip()[:70]
+
+    # Genuinely unqualified "remote" — treat as worldwide, which is the
+    # honest reading when the poster named no restriction at all.
+    return "Worldwide" if "remote" in low else "Not specified"
+
+
 def fetch_hn_hiring(phrases, max_posts=400):
     """
     The monthly Ask HN hiring thread — startup-heavy, AI-heavy, remote-friendly.
@@ -1056,13 +1103,7 @@ def fetch_hn_hiring(phrases, max_posts=400):
         title = next((p for p in cands if role_re.search(p)),
                      cands[0] if cands else company[:80])
 
-        m = _HN_FIELD["location"].search(text)
-        location = m.group(1).strip() if m else ""
-        mr = _HN_FIELD["remote"].search(text)
-        if mr and not location:
-            location = mr.group(1).strip()
-        if not location:
-            location = "Worldwide" if "remote" in low else "Not specified"
+        location = _hn_location(text, parts, low)
 
         results.append({
             "title": title,

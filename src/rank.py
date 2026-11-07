@@ -17,6 +17,7 @@ Ranking (survivors are reordered):
 Every drop is counted and reported, so a filter that is quietly eating
 everything is visible rather than mysterious.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -41,6 +42,45 @@ RESUME_RULES = [
     ("swe", ["software engineer", "backend", "full stack", "full-stack",
              "platform engineer", "node.js", "typescript", "api", "distributed"]),
 ]
+
+
+def role_tier(job, cfg):
+    """
+    Which kind of role this is, and what that is worth.
+
+    The search deliberately admits software, full-stack and frontend roles
+    alongside AI ones — running a second pass for them would spend the
+    RemoteRocketship daily quota twice. Tiering keeps one run while still
+    putting the roles you actually want at the top.
+
+    Matched on the TITLE only. A description will mention React or an LLM for
+    all sorts of reasons; the title is what the job is.
+    """
+    tiers = (cfg or {}).get("tiers") or []
+    title = (job.get("title") or "").lower()
+    for t in tiers:
+        for pat in t.get("match", []):
+            if _pat_hit(title, pat):
+                return t.get("name", "?"), float(t.get("weight", 1.0))
+    return "other", float((cfg or {}).get("default_weight", 1.0))
+
+
+def _pat_hit(title, pat):
+    """
+    Substring for phrases; whole-word for bare tokens.
+
+    A plain substring test made "AI Platform Engineer" fall past the ai tier
+    (it contains neither "ai engineer" nor " ai ") and land on swe via
+    "platform engineer" — down-weighting the exact roles being targeted.
+    A bare token like "ai" or "ml" therefore matches on word boundaries, so
+    "AI Platform Engineer" hits while "Maintenance" does not.
+    """
+    pat = pat.strip().lower()
+    if not pat:
+        return False
+    if " " in pat or len(pat) > 4:
+        return pat in title
+    return re.search(r"\b" + re.escape(pat) + r"\b", title) is not None
 
 
 def recommend_resume(job, variants):
@@ -71,6 +111,7 @@ def rank_jobs(jobs, profile_config):
     sal_cfg = profile_config.get("salary", {})
     weights = profile_config.get("region_weights", {})
     variants = profile_config.get("resume_variants", {})
+    tier_cfg = profile_config.get("role_tiers", {})
     pref_h = float(tz_cfg.get("preferred_overlap_hours", 6.0))
 
     kept, unscored = [], []
@@ -91,6 +132,7 @@ def rank_jobs(jobs, profile_config):
             if tz_u["passes"]:
                 job["tz"] = tz_u
                 job["resume"] = recommend_resume(job, variants)
+                job["role_tier"] = role_tier(job, tier_cfg)[0]
                 unscored.append(job)
             continue
 
@@ -131,14 +173,19 @@ def rank_jobs(jobs, profile_config):
         oh = tz.get("overlap_hours")
         overlap_bonus = 1.0 if oh is None else min(1.15, 0.9 + (oh / pref_h) * 0.2)
 
-        job["final_score"] = round(fit * w * boost * overlap_bonus, 1)
+        tier, tw = role_tier(job, tier_cfg)
+        job["role_tier"] = tier
+        job["final_score"] = round(fit * w * boost * overlap_bonus * tw, 1)
         job["rank_reasons"] = [
             f"fit {fit}",
+            f"{tier} x{tw}",
             f"{region} x{w}",
             f"india:{india.get('confidence')} x{boost}",
             f"overlap {'n/a' if oh is None else str(oh)+'h'} x{round(overlap_bonus,2)}",
         ]
         job["resume"] = recommend_resume(job, variants)
+        stats.setdefault("by_tier", {})
+        stats["by_tier"][tier] = stats["by_tier"].get(tier, 0) + 1
 
         stats["by_region"][region] = stats["by_region"].get(region, 0) + 1
         c = india.get("confidence", "unknown")
@@ -164,6 +211,10 @@ def format_stats(stats):
         reg = ", ".join(f"{k} {v}" for k, v in
                         sorted(stats["by_region"].items(), key=lambda x: -x[1]))
         lines.append(f"    regions: {reg}")
+    if stats.get("by_tier"):
+        tiers = ", ".join(f"{k} {v}" for k, v in
+                          sorted(stats["by_tier"].items(), key=lambda x: -x[1]))
+        lines.append(f"    roles: {tiers}")
     if stats["by_india"]:
         ind = ", ".join(f"{k} {v}" for k, v in
                         sorted(stats["by_india"].items(), key=lambda x: -x[1]))
@@ -179,6 +230,7 @@ def rescore(ranked_jobs, profile_config):
     """
     weights = profile_config.get("region_weights", {})
     tz_cfg = profile_config.get("timezone", {})
+    tier_cfg = profile_config.get("role_tiers", {})
     pref_h = float(tz_cfg.get("preferred_overlap_hours", 6.0))
 
     for job in ranked_jobs:
@@ -192,9 +244,12 @@ def rescore(ranked_jobs, profile_config):
         boost = 1.0 if region == "india" else float(india.get("boost", 1.0))
         oh = tz.get("overlap_hours")
         overlap_bonus = 1.0 if oh is None else min(1.15, 0.9 + (oh / pref_h) * 0.2)
-        job["final_score"] = round(fit * w * boost * overlap_bonus, 1)
+        tier, tw = role_tier(job, tier_cfg)
+        job["role_tier"] = tier
+        job["final_score"] = round(fit * w * boost * overlap_bonus * tw, 1)
         job["rank_reasons"] = [
             f"fit {fit}",
+            f"{tier} x{tw}",
             f"{region} x{w}",
             f"india:{india.get('confidence','unknown')} x{boost}",
             f"overlap {'n/a' if oh is None else str(oh)+'h'} x{round(overlap_bonus,2)}",

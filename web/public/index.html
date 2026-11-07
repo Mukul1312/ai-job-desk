@@ -179,6 +179,19 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
       <button class="chip" id="f-new" type="button" aria-pressed="false">New</button>
       <button class="chip" id="f-india" type="button" aria-pressed="false">India-hireable</button>
       <button class="chip" id="f-unscored" type="button" aria-pressed="false">Include unscored</button>
+      <select id="f-tier" aria-label="Filter by role type">
+        <option value="">All roles</option>
+        <option value="ai">AI / ML</option>
+        <option value="fde">Forward deployed</option>
+        <option value="swe">Software</option>
+        <option value="frontend">Frontend</option>
+      </select>
+      <select id="f-eng" aria-label="Filter by engagement">
+        <option value="">Any engagement</option>
+        <option value="employment">Employment</option>
+        <option value="marketplace">Marketplace</option>
+        <option value="contract">Contract</option>
+      </select>
       <select id="f-status" aria-label="Filter by status">
         <option value="">Any status</option>
         <option value="none">Untriaged</option>
@@ -212,7 +225,7 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
   var STATUSES=[["none","Untriaged"],["shortlist","Shortlist"],["applied","Applied"],
                 ["interview","Interview"],["passed","Pass"]];
   var state={data:null,notes:{},open:null,q:"",fNew:false,fIndia:false,
-             fUnscored:false,fStatus:""};
+             fUnscored:false,fStatus:"",fTier:"",fEng:""};
   var remote=false, saveTimers={};
   var LS="jobdesk.notes";
 
@@ -368,6 +381,8 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
   wireChip("f-new","fNew");wireChip("f-india","fIndia");wireChip("f-unscored","fUnscored");
   $("q").addEventListener("input",function(){state.q=this.value.toLowerCase();render()});
   $("f-status").addEventListener("change",function(){state.fStatus=this.value;render()});
+  $("f-tier").addEventListener("change",function(){state.fTier=this.value;render()});
+  $("f-eng").addEventListener("change",function(){state.fEng=this.value;render()});
 
   function visible(){
     var jobs=(state.data&&state.data.jobs)||[];
@@ -375,6 +390,8 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
       if(!state.fUnscored&&!j.scored)return false;
       if(state.fNew&&!j.isNew)return false;
       if(state.fIndia&&j.india!=="confirmed")return false;
+      if(state.fTier&&j.tier!==state.fTier)return false;
+      if(state.fEng&&(j.engagement||"employment")!==state.fEng)return false;
       if(state.fStatus){
         var st=(state.notes[keyOf(j.id)]||{}).status||"none";
         if(st!==state.fStatus)return false;
@@ -393,6 +410,10 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
     return '<span class="tag '+cls+'">'+j.overlap+"h</span>";
   }
   function indiaTag(j){
+    // A marketplace or contract route answers the hiring question outright,
+    // so it reads as its own state rather than as an India verdict.
+    if(j.engagement==="marketplace")return '<span class="tag t-good">contract ✓</span>';
+    if(j.engagement==="contract")return '<span class="tag t-warn">contract</span>';
     if(j.india==="confirmed")return '<span class="tag t-good">India ✓</span>';
     if(j.india==="likely")return '<span class="tag t-warn">India ?</span>';
     return "";
@@ -426,6 +447,7 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
             (j.location?" · "+esc(j.location):"")+" · "+esc(j.source)+"</span></span>"+
           '<span class="metrics">'+
             (st!=="none"?'<span class="tag t-accent">'+esc(labelOf(st))+"</span>":"")+
+            (j.tier&&j.tier!=="ai"?'<span class="tag t-ghost">'+esc(j.tier)+"</span>":"")+
             indiaTag(j)+overlapTag(j)+
             (j.lpa!=null?'<span class="tag t-ghost">'+j.lpa+" LPA</span>":"")+
             (j.resume?'<span class="tag t-ghost">'+esc(j.resume)+"</span>":"")+
@@ -438,6 +460,8 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
   function detail(j,k,n){
     var facts=[
       ["Source",esc(j.source)||"—"],
+      ["Role type",esc(j.tier)||"—"],
+      ["Engagement",esc(j.engagement)||"employment"],
       ["Fit score",j.fit!=null?j.fit+" / 100":"not graded"],
       ["Overlap",j.overlap!=null?j.overlap+" h a day"+(j.tzName?" · "+esc(j.tzName):""):"no restriction"],
       ["Salary",j.lpa!=null?j.lpaLow+"–"+j.lpaHigh+" LPA":"not stated"],

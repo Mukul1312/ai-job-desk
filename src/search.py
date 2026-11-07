@@ -964,6 +964,24 @@ _HN_ONLY = re.compile(
     r'india|germany|netherlands|poland|spain|portugal)\b[ -]*only')
 
 
+def _clean_company(seg):
+    """
+    Posters often append their URL to the company name — "Distru (
+    https://distru.com )". Keep the name, drop the link and any empty
+    brackets it leaves behind.
+    """
+    s = re.sub(r'https?://\S+|www\.\S+', ' ', str(seg or ''))
+    s = re.sub(r'[\(\[]\s*[\)\]]', ' ', s)          # brackets the URL emptied
+    s = re.sub(r'\s+', ' ', s).strip(' -–—|,;:')
+    # Only drop a dangling bracket, never a balanced one: "MixRank (YC S11)"
+    # must keep its batch tag.
+    if s.count("(") > s.count(")"):
+        s = s.rstrip(" (")
+    if s.count(")") > s.count("("):
+        s = s.lstrip(" )")
+    return s[:60].strip() or "See post"
+
+
 def _hn_location(text, parts, low):
     """
     Best-effort location from a free-form HN hiring post.
@@ -1079,7 +1097,7 @@ def fetch_hn_hiring(phrases, max_posts=400):
         # Not every post leads with the company; some open with "Location: ...".
         # Taking parts[0] blindly produces companies called "Location: Spain".
         company = next(
-            (p[:60] for p in parts[:3]
+            (_clean_company(p) for p in parts[:3]
              if not _re.match(r'(?i)(location|remote|salary|comp|visa|stack|'
                               r'tech|role|position|about)\s*[:\-]', p)
              and not p.lower().startswith(("http", "www."))),

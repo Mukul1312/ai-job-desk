@@ -52,6 +52,25 @@ EOR_SIGNALS = [
     "fully distributed", "contractor agreement", "independent contractor",
 ]
 
+# Developer marketplaces. You contract through them rather than being
+# employed by the end client, which means the "does this company have an
+# Indian entity" question does not arise at all — they pay contractors
+# wherever they live. For someone hiring from India that is not noise to be
+# filtered out, it is the constraint being solved structurally.
+MARKETPLACES = [
+    "lemon.io", "lemon io", "proxify", "toptal", "turing", "turing.com",
+    "andela", "x-team", "xteam", "gun.io", "arc.dev", "gigster", "hivex",
+    "silver.dev", "silverdev", "crossover", "remotemore", "deel talent",
+    "upstack", "scalable path", "soshace", "braintrust", "a.team",
+]
+
+# Phrasing in the posting itself that means contract rather than payroll.
+CONTRACT_SIGNALS = [
+    "contract role", "contract position", "freelance", "freelancer",
+    "independent contractor", "b2b contract", "contract basis",
+    "hourly rate", "day rate", "c2c", "corp-to-corp",
+]
+
 INDIA_TOKENS = [
     "india", "bengaluru", "bangalore", "mumbai", "delhi", "hyderabad",
     "pune", "chennai", "gurgaon", "gurugram", "noida", "kolkata",
@@ -89,6 +108,25 @@ def _norm(name):
 
 
 # ── layer 1: JD language ─────────────────────────────────────────────────────
+
+def engagement(job):
+    """
+    How you would be engaged: marketplace, contract, or employment.
+
+    Returns (kind, why) where kind is "marketplace", "contract" or "".
+    Marketplace is decided on the company name; contract on the posting text.
+    """
+    company = (job.get("company") or "").lower()
+    for m in MARKETPLACES:
+        if m in company:
+            return "marketplace", f"{job.get('company')} contracts you out — no local entity needed"
+    blob = " ".join(str(job.get(k, "")) for k in
+                    ("description", "tags", "title")).lower()
+    for s in CONTRACT_SIGNALS:
+        if s in blob:
+            return "contract", f"posting says {s}"
+    return "", ""
+
 
 def eor_signal(job):
     """Does the posting itself say they hire across borders?"""
@@ -308,6 +346,12 @@ def company_india_presence(company_name, job, board_index, cfg, key=None,
     key_norm = _norm(company_name)
     evidence, epfo = [], None
 
+    # layer 0 — engagement type. A marketplace or contract role sidesteps
+    # the entity question entirely, so it needs no paid lookup at all.
+    kind, why = engagement(job)
+    if kind:
+        evidence.append(why)
+
     # layer 1
     hits = eor_signal(job)
     if hits:
@@ -341,12 +385,22 @@ def company_india_presence(company_name, job, board_index, cfg, key=None,
                 f"EPFO registered: {ests[0]['name'][:40]}" if ests
                 else "EPFO registered")
 
-    return _verdict(epfo, hits, key_norm, board_index, cfg, evidence)
+    return _verdict(epfo, hits, key_norm, board_index, cfg, evidence, kind)
 
 
-def _verdict(epfo, eor_hits, key_norm, board_index, cfg, evidence):
+def _verdict(epfo, eor_hits, key_norm, board_index, cfg, evidence, kind=""):
     """Grade the collected evidence. Shared so the billing bail-out below
     still returns a well-formed verdict from the free layers alone."""
+    # Contracting resolves the hiring question rather than leaving it open,
+    # so these never sit at "unknown" waiting for an EPFO hit that will never
+    # come. The boost stays NEUTRAL on purpose: being hireable is a gate, not
+    # a mark of quality. Boosting it floats a marketplace's whole catalogue —
+    # a PHP role outranked every direct-employer AI role when this was 1.25.
+    # The label tells you the route is open; fit, overlap and salary decide
+    # the order.
+    if kind in ("marketplace", "contract"):
+        return {"confidence": "contractor", "boost": 1.0,
+                "evidence": evidence, "epfo": epfo, "engagement": kind}
     if (epfo and epfo.get("found")) or (key_norm and key_norm in board_index):
         conf, boost = "confirmed", float(cfg.get("boost_confirmed", 1.25))
     elif eor_hits:
@@ -357,7 +411,7 @@ def _verdict(epfo, eor_hits, key_norm, board_index, cfg, evidence):
         conf, boost = "unknown", 1.0
 
     return {"confidence": conf, "boost": boost, "evidence": evidence,
-            "epfo": epfo}
+            "epfo": epfo, "engagement": kind}
 
 
 def enrich_free(jobs, profile_config, all_jobs=None):
@@ -397,7 +451,7 @@ def _needs_epfo(job):
     finding. What EPFO buys is foreign employers with a quiet Indian entity.
     """
     india = job.get("india") or {}
-    if india.get("confidence") == "confirmed":
+    if india.get("confidence") in ("confirmed", "contractor"):
         return False
     if (job.get("tz") or {}).get("region") == "india":
         return False

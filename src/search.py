@@ -928,6 +928,13 @@ def fetch_gethired(phrases, max_pages=6, page_size=500):
                 "description": desc,
                 "experience_min": exp_min,
                 "visa_requirement": job.get("visa_requirement"),
+                # gethired names the applicant tracking system the listing came
+                # from. resolve.py trusts this over anything it could infer, and
+                # it is the only source that hands the answer over for free —
+                # the job page itself is a Next.js shell with no apply link in
+                # the markup, so without this every row needs a page fetch that
+                # would still come back empty.
+                "ats_platform": safe_str(job.get("platform", "")).strip().lower() or None,
                 "source": "GetHired [India]",
             })
 
@@ -1178,7 +1185,10 @@ def _rr_spent_today():
         for r in store.read_quota_log():
             if r.get("date") == today and r.get("source") == "remoterocketship":
                 jobs += int(r.get("billed") or 0)
-                reqs += 1
+                # Rows written before requests were counted represent one
+                # region each; one request is the floor, never an overcount
+                # that would lock the source out early.
+                reqs += int(r.get("requests") or 1)
         return jobs, reqs
     except Exception:
         return 0, 0
@@ -1237,18 +1247,23 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
 
     results, seen_urls = [], set()
     raw_records = []
+    reqs = []
     done = 0
     for region in regions:
         try:
             before_billed, before_unique = len(raw_records), len(results)
+            before_reqs = len(reqs)
             got = _rr_fetch_region(key, rr, region, min_usd,
-                                   max_pages, seen_urls, raw_records)
+                                   max_pages, seen_urls, raw_records,
+                                   req_sink=reqs)
             results.extend(got)
             RR_REGION_STATS.append({
                 "source": "remoterocketship",
                 "region": region or "(all)",
+                "pages": f"1-{max_pages}" if max_pages > 1 else "1",
                 "billed": len(raw_records) - before_billed,
                 "unique": len(results) - before_unique,
+                "requests": len(reqs) - before_reqs,
                 "ranked": 0,          # filled in after ranking
             })
             done += 1
@@ -1281,10 +1296,22 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
     return results
 
 
-def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls, raw_sink=None):
-    """Page through one RemoteRocketship region. See fetch_remoterocketship."""
-    results, page = [], 1
-    while page <= max_pages:
+def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls,
+                     raw_sink=None, start_page=1, req_sink=None):
+    """
+    Page through one RemoteRocketship region. See fetch_remoterocketship.
+
+    start_page exists so a top-up can buy pages 3-4 of a region whose first
+    two pages are already on disk. Billing is per job returned, so re-reading
+    page 1 to reach page 3 would pay twice for rows we already own.
+
+    req_sink, if given, gets one entry appended per HTTP request actually
+    issued — the request cap (500/day) is separate from the job cap (3000)
+    and only the caller can see the whole run's worth.
+    """
+    results, page = [], max(1, int(start_page or 1))
+    last_page = page + max_pages - 1
+    while page <= last_page:
         filters = {
             "page": page,
             "itemsPerPage": 50,
@@ -1313,6 +1340,8 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls, raw_sink=No
         try:
             req = urllib.request.Request(RR_ENDPOINT, data=body,
                                          method="POST", headers=hdrs)
+            if req_sink is not None:
+                req_sink.append(1)
             try:
                 with urllib.request.urlopen(req, timeout=30) as r:
                     data = json.loads(r.read().decode())
@@ -1321,6 +1350,8 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls, raw_sink=No
                 # them, so follow once by hand rather than losing the source.
                 if e.code not in (307, 308):
                     raise
+                if req_sink is not None:
+                    req_sink.append(1)      # the replay is a second request
                 target = e.headers.get("Location", "")
                 if not target:
                     raise
@@ -1559,3 +1590,103 @@ def fetch_all(domain, phrases, profile_config, profile_meta=None, offline=False)
 
     print(f"\n  Total unique jobs: {len(unique)}")
     return unique
+
+
+def topup_remoterocketship(profile_config, profile_meta, regions,
+                           max_pages=2, start_page=1, dry_run=False):
+    """
+    Buy extra RemoteRocketship regions (or deeper pages) and merge them into
+    today's snapshot.
+
+    The daily cap is a cap, not a balance: whatever is unspent at 00:00 UTC
+    is gone. This exists so that remainder can be turned into evidence —
+    which regions earn their quota, and whether a region's listings run
+    deeper than the page limit we guessed at — without re-buying the rows
+    already on disk.
+
+    Returns the number of jobs billed.
+    """
+    import os, store
+    key = os.getenv("REMOTEROCKETSHIP_API_KEY", "").strip()
+    if not key:
+        print("  top-up: no REMOTEROCKETSHIP_API_KEY in .env")
+        return 0
+
+    rr = dict(profile_meta.get("remoterocketship", {}))
+    sal = profile_config.get("salary", {})
+    min_lpa = float(sal.get("min_lpa", 0) or 0)
+    usd_rate = float((sal.get("fx_to_inr") or {}).get("USD", 89.0))
+    min_usd = int(min_lpa * 100_000 / usd_rate) if min_lpa else 0
+
+    planned = len(regions) * max_pages * 50
+    planned_reqs = len(regions) * max_pages
+    spent_jobs, spent_reqs = _rr_spent_today()
+    left_jobs = RR_DAILY_JOBS - spent_jobs
+    left_reqs = RR_DAILY_REQUESTS - spent_reqs
+    h, m, nxt = _utc_reset_in()
+
+    print(f"  spent today : {spent_jobs:,} jobs / {spent_reqs} requests")
+    print(f"  remaining   : {left_jobs:,} jobs / {left_reqs} requests "
+          f"(expires in {h}h {m}m, at {nxt:%H:%M} UTC / 05:30 IST)")
+    print(f"  this top-up : up to {planned:,} jobs / {planned_reqs} requests "
+          f"— {len(regions)} region(s), pages "
+          f"{start_page}-{start_page + max_pages - 1}")
+
+    if planned > left_jobs or planned_reqs > left_reqs:
+        print("  refusing: this would exceed today's cap. Fetch fewer regions "
+              "or pages, or wait for the reset.")
+        return 0
+    if dry_run:
+        print("  --dry-run: nothing fetched.")
+        return 0
+
+    # Count a job as new only if today's snapshot does not already have it,
+    # so `unique` measures what the extra spend actually bought.
+    today_blob = store.load_source("remoterocketship") or {}
+    seen_urls = {j.get("url") for j in (today_blob.get("jobs") or [])
+                 if j.get("url")}
+    before_known = len(seen_urls)
+
+    results, raw_records, reqs, stats = [], [], [], []
+    for region in regions:
+        try:
+            b_raw, b_res, b_req = len(raw_records), len(results), len(reqs)
+            got = _rr_fetch_region(key, rr, region, min_usd, max_pages,
+                                   seen_urls, raw_records,
+                                   start_page=start_page, req_sink=reqs)
+            results.extend(got)
+            billed = len(raw_records) - b_raw
+            stats.append({
+                "source": "remoterocketship",
+                "region": region or "(all)",
+                "pages": (f"{start_page}-{start_page + max_pages - 1}"
+                          if max_pages > 1 else str(start_page)),
+                "billed": billed,
+                "unique": len(results) - b_res,
+                "requests": len(reqs) - b_req,
+                "ranked": 0,
+            })
+            print(f"    {region or '(all)':<24} {billed:>4} billed  "
+                  f"{len(results) - b_res:>4} new")
+        except _RRQuotaExhausted as e:
+            print(f"  top-up: stopped at {region} — {e}")
+            print(f"      Resets in {h}h {m}m ({nxt:%H:%M} UTC / 05:30 IST).")
+            break
+
+    if not raw_records:
+        print("  top-up: nothing returned, nothing billed.")
+        return 0
+
+    # Merge before logging: if the merge fails, the quota log must not claim
+    # we hold data we threw away.
+    _, added = store.merge_source("remoterocketship", results)
+    _, raw_added = store.merge_raw("remoterocketship", raw_records)
+    store.log_quota(stats)
+
+    billed = len(raw_records)
+    print(f"  top-up: {billed} jobs billed, {added} new to the snapshot "
+          f"({raw_added} new raw records)")
+    print(f"  snapshot now holds {before_known + added} jobs for today")
+    print("  run ./run.sh to rank and publish them — the snapshot is cached, "
+          "so that run bills nothing.")
+    return billed

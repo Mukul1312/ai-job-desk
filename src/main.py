@@ -64,6 +64,10 @@ def main():
                     help="Replay the latest stored snapshots; makes no network calls")
     ap.add_argument("--new-only", action="store_true",
                     help="Report only jobs not seen in a previous run")
+    ap.add_argument("--no-resolve", action="store_true",
+                    help="Skip working out where each application actually goes")
+    ap.add_argument("--resolve-budget", type=int, default=60,
+                    help="Max listing pages to fetch when resolving destinations")
     ap.add_argument("--prune-days", type=int, default=30,
                     help="Delete raw snapshots older than this many days")
     ap.add_argument("--queue-applications", action="store_true",
@@ -129,19 +133,42 @@ def main():
     # from evidence instead of argued about.
     try:
         import search as _search
+        ranked_by_region = {}
+        for j in ranked:
+            if str(j.get("source", "")).startswith("RemoteRocketship"):
+                r = j.get("location") or "(all)"
+                ranked_by_region[r] = ranked_by_region.get(r, 0) + 1
+
         if _search.RR_REGION_STATS:
-            ranked_by_region = {}
-            for j in ranked:
-                if str(j.get("source", "")).startswith("RemoteRocketship"):
-                    r = j.get("location") or "(all)"
-                    ranked_by_region[r] = ranked_by_region.get(r, 0) + 1
             for row in _search.RR_REGION_STATS:
                 row["ranked"] = ranked_by_region.get(row["region"], 0)
             store.log_quota(_search.RR_REGION_STATS)
+        elif ranked_by_region:
+            # Served from cache, so nothing was billed and there are no new
+            # rows — but regions bought by a top-up earlier today have never
+            # been scored against a shortlist. Without this they stay at
+            # ranked=0 and the efficiency table calls them worthless.
+            store.backfill_ranked(ranked_by_region)
+
+        if ranked_by_region:
             print("\nPaid-source efficiency (cumulative):")
             print(store.quota_report())
     except Exception as e:
         print(f"  quota accounting skipped: {e}")
+
+    # Where does an application actually go? A listing URL is not an apply URL,
+    # so without this every job looks like a generic form and the report cannot
+    # say which systems are really in the pipeline. Runs after ranking so any
+    # page fetches are spent on the roles worth applying to.
+    if not args.no_resolve:
+        print("\nResolving apply destinations...")
+        try:
+            from resolve import resolve_all
+            resolve_all(ranked,
+                        allow_fetch=not args.offline,
+                        fetch_budget=args.resolve_budget)
+        except Exception as e:
+            print(f"  resolve skipped: {e}")
 
     print("\nAnalysing skill gaps...")
     gap_analysis = analyze_gaps(ranked, known_skills)

@@ -233,17 +233,54 @@ QUOTA_LOG = DATA_DIR / "quota_log.jsonl"
 
 
 def log_quota(rows):
-    """Append one record per region per run. Never raises: logging must not
-    be able to fail a run that already spent the quota."""
+    """
+    Record what each region cost. One row per (date, source, region).
+
+    A second fetch of a region the same day — a top-up buying deeper pages —
+    adds to that day's row instead of appending a new one. Two rows for one
+    region cannot be attributed: `ranked` is counted per region from the
+    final shortlist, so it could only be written to both (double-counting)
+    or one (understating the other).
+
+    Never raises: logging must not fail a run that already spent the quota.
+    """
     if not rows:
         return
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        with QUOTA_LOG.open("a", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps({"ts": stamp, "date": _today(), **r},
-                                   ensure_ascii=False) + "\n")
+        today = _today()
+        existing = read_quota_log()
+        index = {(r.get("date"), r.get("source"), r.get("region")): r
+                 for r in existing}
+
+        touched = False
+        for r in rows:
+            new = {"ts": stamp, "date": today, **r}
+            prior = index.get((today, new.get("source"), new.get("region")))
+            if prior is None:
+                existing.append(new)
+                index[(today, new.get("source"), new.get("region"))] = new
+            else:
+                for field in ("billed", "unique", "requests"):
+                    if field in new:
+                        prior[field] = int(prior.get(field) or 0) + int(new[field] or 0)
+                # ranked is a count of the whole day's shortlist, not a delta.
+                if new.get("ranked"):
+                    prior["ranked"] = int(new["ranked"])
+                for a, b in ((prior.get("pages"), new.get("pages")),):
+                    if b and b != a:
+                        prior["pages"] = f"{a}+{b}" if a else b
+                prior["ts"] = stamp
+                touched = True
+
+        if touched:
+            _rewrite_quota_log(existing)
+        else:
+            with QUOTA_LOG.open("a", encoding="utf-8") as f:
+                for r in rows:
+                    f.write(json.dumps({"ts": stamp, "date": today, **r},
+                                       ensure_ascii=False) + "\n")
     except Exception as e:
         print(f"  quota log not written: {e}")
 
@@ -408,3 +445,123 @@ if __name__ == "__main__":
         print()
         print("Paid-source efficiency (cumulative):")
         print(quota_report())
+
+
+# ── Top-up merges ────────────────────────────────────────────────────────
+# save_source and save_raw overwrite the day, which is right for a normal
+# run: one fetch per source per day, newest wins. A top-up is the other
+# shape — a second paid fetch of *different* regions, hours later, whose
+# results must join what is already on disk. Overwriting there would throw
+# away jobs that cost quota and cannot be re-bought until the cap resets.
+
+def merge_source(source, jobs, date_str=None, key="url"):
+    """
+    Add jobs to a day's snapshot, keeping both sides. Returns (path, added).
+
+    Existing rows win on conflict: the first fetch of a job carries the
+    region we actually asked for, and a later region query returning the
+    same posting must not relabel it.
+    """
+    if not jobs:
+        return None, 0
+    date_str = date_str or _today()
+    existing = load_source(source, date_str) or {}
+    old = existing.get("jobs") or []
+
+    seen = {j.get(key) for j in old if isinstance(j, dict) and j.get(key)}
+    added = []
+    for j in jobs:
+        k = j.get(key) if isinstance(j, dict) else None
+        if k and k in seen:
+            continue
+        if k:
+            seen.add(k)
+        added.append(_jsonable(j))
+
+    merged = old + added
+    d = _dir_for(date_str)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{_slug(source)}.json"
+    path.write_text(json.dumps({
+        "source": source,
+        # Refreshed so the cache window runs from the newest paid fetch.
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "count": len(merged),
+        "jobs": merged,
+    }, ensure_ascii=False), encoding="utf-8")
+    return path, len(added)
+
+
+def merge_raw(source, records, date_str=None, key="id"):
+    """Add provider records to a day's raw archive. Returns (path, added)."""
+    if not records:
+        return None, 0
+    date_str = date_str or _today()
+    prev = load_raw(source, date_str) or {}
+    old = prev.get("records") or []
+
+    seen = {r.get(key) for r in old if isinstance(r, dict) and r.get(key) is not None}
+    added = []
+    for r in records:
+        k = r.get(key) if isinstance(r, dict) else None
+        if k is not None:
+            if k in seen:
+                continue
+            seen.add(k)
+        added.append(r)
+
+    merged = old + added
+    d = _dir_for(date_str)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{_slug(source)}.raw.json.gz"
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        json.dump({
+            "source": source,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "returned": int(prev.get("returned") or len(old)) + len(records),
+            "unique": len(merged),
+            "records": merged,
+        }, f, ensure_ascii=False)
+    return path, len(added)
+
+
+def backfill_ranked(counts, date_str=None, source="remoterocketship"):
+    """
+    Fill in `ranked` on a day's quota rows from {region: n}.
+
+    A run served from cache does no fetching, so it produces no new quota
+    rows — but it does rank, and without this the regions a top-up bought
+    would sit at ranked=0 for good and read as worthless in the efficiency
+    table. Rewrites in place; never raises, for the same reason log_quota
+    does not: the quota is already spent either way.
+    """
+    if not counts:
+        return 0
+    date_str = date_str or _today()
+    try:
+        rows = read_quota_log()
+        if not rows:
+            return 0
+        changed = 0
+        for r in rows:
+            if r.get("date") != date_str or r.get("source") != source:
+                continue
+            n = counts.get(r.get("region"))
+            if n is not None and int(r.get("ranked") or 0) != int(n):
+                r["ranked"] = int(n)
+                changed += 1
+        if changed:
+            _rewrite_quota_log(rows)
+        return changed
+    except Exception as e:
+        print(f"  quota log not updated: {e}")
+        return 0
+
+
+def _rewrite_quota_log(rows):
+    """Replace the log atomically — a torn write would lose spend history."""
+    tmp = QUOTA_LOG.with_suffix(".jsonl.tmp")
+    tmp.write_text(
+        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
+        encoding="utf-8")
+    tmp.replace(QUOTA_LOG)

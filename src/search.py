@@ -1199,11 +1199,99 @@ def datetime_utc_date():
     return datetime.now(_tz.utc).strftime("%Y-%m-%d")
 
 
+# What the API itself says is left. Our quota log is a reconstruction from
+# our own writes; these headers are the authority, and they survive spend we
+# did not make (another client, the CLI, the MCP server — the cap is per
+# subscriber, shared across all of them).
+#   X-JobLimit-Remaining : jobs left of 3000
+#   RateLimit            : "daily-requests";r=<requests left>;t=<seconds to reset>
+RR_QUOTA = {"jobs_left": None, "requests_left": None, "reset_secs": None}
+
+
+def _rr_note_quota(headers):
+    """Record the quota the response reported. Never raises."""
+    try:
+        h = {k.lower(): v for k, v in dict(headers).items()}
+        rem = h.get("x-joblimit-remaining")
+        if rem is not None and str(rem).strip().lstrip("-").isdigit():
+            RR_QUOTA["jobs_left"] = int(rem)
+        rl = h.get("ratelimit") or ""
+        import re as _re
+        mr = _re.search(r"r=(\d+)", rl)
+        mt = _re.search(r"t=(\d+)", rl)
+        if mr:
+            RR_QUOTA["requests_left"] = int(mr.group(1))
+        if mt:
+            RR_QUOTA["reset_secs"] = int(mt.group(1))
+    except Exception:
+        pass
+
+
 # Filled by fetch_remoterocketship, completed after ranking, then logged.
 # Which regions earn their quota is an empirical question whose answer drifts,
 # so it gets measured every run instead of re-argued from memory.
 RR_REGION_STATS = []
 
+
+
+# RemoteRocketship publishes closed lists for most filters. The failure mode
+# differs per field and both are silent, so neither can be left to chance:
+#   locationFilters  — an unknown value is DROPPED, and the query then returns
+#                      the unfiltered feed at full price.
+#   jobTitleFilters  — an unknown value is KEPT as free-text search, which is a
+#                      different search than the canonical one it resembles.
+# Measured 2026-11-09: "United Arab Emirates" and the junk control "Europe"
+# both returned totalCount 192,634, identical to sending no filter at all.
+_RR_ENUMS_PATH = Path(__file__).parent.parent / "config" / "rr_enums.json"
+_RR_ENUMS_CACHE = None
+
+# Fields where an unrecognised value silently widens the search to everything.
+_RR_DROP_ON_UNKNOWN = ("locationFilters",)
+
+
+def _rr_enums():
+    global _RR_ENUMS_CACHE
+    if _RR_ENUMS_CACHE is None:
+        try:
+            _RR_ENUMS_CACHE = json.loads(_RR_ENUMS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            _RR_ENUMS_CACHE = {}
+    return _RR_ENUMS_CACHE
+
+
+def _rr_validate_filters(rr):
+    """
+    Drop filter values RemoteRocketship does not recognise, loudly.
+
+    Returns a copy; never raises. If the enum file is missing we validate
+    nothing rather than block the run — a stale allow-list must not become a
+    second way to lose a region.
+    """
+    enums = _rr_enums()
+    if not enums:
+        print("  RemoteRocketship: config/rr_enums.json missing — filters unvalidated")
+        return rr
+
+    out = dict(rr)
+    for field, allowed in enums.items():
+        if field.startswith("_") or field not in out or not isinstance(allowed, list):
+            continue
+        values = out[field]
+        if not isinstance(values, list):
+            continue
+        ok = [v for v in values if v in allowed]
+        bad = [v for v in values if v not in allowed]
+        if not bad:
+            continue
+        if field in _RR_DROP_ON_UNKNOWN:
+            print(f"  RemoteRocketship: dropping unknown {field} "
+                  f"{bad} — the API ignores these and bills for the "
+                  f"UNFILTERED feed instead.")
+            out[field] = ok
+        else:
+            print(f"  RemoteRocketship: {field} {bad} are not canonical — "
+                  f"sent as free-text search, not the named filter.")
+    return out
 
 
 def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
@@ -1230,13 +1318,21 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
     usd_rate = float(fx.get("USD", 89.0))
     min_usd = int(min_lpa * 100_000 / usd_rate) if min_lpa else 0
 
-    # One request per region. The API returns no geography of its own, so the
-    # only honest location for a result is the single region we asked about.
-    # Querying all regions at once and labelling every row with the whole list
-    # makes every job look India-eligible and 9h-overlapping, which is a
-    # fabricated signal, not a generous one.
+    # Reject filter values the API does not know BEFORE spending anything on
+    # them. An unrecognised locationFilters value is not a narrower search: the
+    # API drops it and returns the unfiltered feed, at full price, looking
+    # exactly like a successful filtered result. "United Arab Emirates" is not
+    # in RR's 245-country list and cost us 100 global jobs labelled Dubai.
+    rr = _rr_validate_filters(rr)
+
+    # One request per region. The API returns no geography of its own in the
+    # job body — the location lives in the slug — so the region we asked about
+    # is still how a result is attributed back to its spend.
     regions = rr.get("locationFilters") or [None]
-    planned = len(regions) * max_pages * 50
+    # One sizing probe per region (1 job each) plus the pages themselves. The
+    # probe is the cheapest thing we buy and the only one that prevents
+    # over-buying the rest.
+    planned = len(regions) * (max_pages * 50 + 1)
     spent_jobs, spent_reqs = _rr_spent_today()
     if spent_jobs and spent_jobs + planned > RR_DAILY_JOBS:
         h, m, nxt = _utc_reset_in()
@@ -1253,14 +1349,32 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
         try:
             before_billed, before_unique = len(raw_records), len(results)
             before_reqs = len(reqs)
+
+            # One job buys this region's totalCount, which caps the pages
+            # worth asking for. Without it we ask every region for the same
+            # number of pages and discover the end of a small one by paying
+            # for an empty page.
+            pages = max_pages
+            total, left = _rr_region_size(key, rr, region, min_usd, req_sink=reqs)
+            if isinstance(total, int):
+                have = -(-total // 50)                  # ceil
+                pages = max(1, min(max_pages, have))
+                note = f"{total} available"
+                if have < max_pages:
+                    note += f" — {pages} page(s), not {max_pages}"
+                if left is not None:
+                    note += f" | {left:,} jobs left today"
+                print(f"    {str(region or '(all)'):<24}{note}")
+
             got = _rr_fetch_region(key, rr, region, min_usd,
-                                   max_pages, seen_urls, raw_records,
+                                   pages, seen_urls, raw_records,
                                    req_sink=reqs)
             results.extend(got)
             RR_REGION_STATS.append({
                 "source": "remoterocketship",
                 "region": region or "(all)",
-                "pages": f"1-{max_pages}" if max_pages > 1 else "1",
+                "pages": f"1-{pages}" if pages > 1 else "1",
+                "pool": total if isinstance(total, int) else None,
                 "billed": len(raw_records) - before_billed,
                 "unique": len(results) - before_unique,
                 "requests": len(reqs) - before_reqs,
@@ -1326,6 +1440,51 @@ def _rr_location_from_slug(slug, role_title):
     return place.replace("-", " ").title()
 
 
+def _rr_region_size(key, rr, region, min_usd, req_sink=None):
+    """
+    How many jobs match this region, for the price of one.
+
+    Billing is per job RETURNED (measured 2026-11-09), and totalCount does not
+    depend on how many you take — so itemsPerPage=1 buys the size of the whole
+    result set for a single job. That turns page budgeting from a guess into
+    arithmetic: Singapore holds 80 jobs and should never be asked for page 3,
+    India holds 584 and was being cut off at 100.
+
+    Returns (total, jobs_left) — jobs_left from the API's own header, or
+    (None, None) if the probe failed. A failed probe must not block the fetch.
+    """
+    filters = {"page": 1, "itemsPerPage": 1, "showRemoteJobs": True,
+               "showHybridJobs": False, "showOnsiteJobs": False,
+               "sortBy": "DateAdded", "hideGhostJobsFilter": "true",
+               "showJobsWithoutSalaryWithMinSalaryFilter": True}
+    for k in ("jobTitleFilters", "techStackFilters", "seniorityFilters",
+              "keywordFilters", "excludedKeywordFilters", "employmentTypeFilters"):
+        if rr.get(k):
+            filters[k] = rr[k]
+    if region:
+        filters["locationFilters"] = [region]
+    if min_usd:
+        filters["minSalaryFilter"] = min_usd
+    body = json.dumps({"filters": filters, "includeJobDescription": False}).encode()
+    req = urllib.request.Request(
+        RR_ENDPOINT, data=body, method="POST",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                 "User-Agent": "remote-job-hunter", "RR-API-Version": "1"})
+    try:
+        if req_sink is not None:
+            req_sink.append(1)
+        with urllib.request.urlopen(req, timeout=30) as r:
+            _rr_note_quota(r.headers)
+            data = json.loads(r.read().decode())
+        return data.get("totalCount"), RR_QUOTA.get("jobs_left")
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403, 429):
+            raise _RRQuotaExhausted("probe: " + (e.reason or str(e.code)))
+        return None, None
+    except Exception:
+        return None, None
+
+
 def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls,
                      raw_sink=None, start_page=1, req_sink=None):
     """
@@ -1366,7 +1525,10 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls,
                            "includeJobDescription": True}).encode()
         hdrs = {"Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
-                "User-Agent": "remote-job-hunter"}
+                "User-Agent": "remote-job-hunter",
+                # Pin the contract. Omitting it defaults to 1 today, but a
+                # silent move to 2 would change field meanings under us.
+                "RR-API-Version": "1"}
         try:
             req = urllib.request.Request(RR_ENDPOINT, data=body,
                                          method="POST", headers=hdrs)
@@ -1374,6 +1536,7 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls,
                 req_sink.append(1)
             try:
                 with urllib.request.urlopen(req, timeout=30) as r:
+                    _rr_note_quota(r.headers)
                     data = json.loads(r.read().decode())
             except urllib.error.HTTPError as e:
                 # 307/308 preserve the method and body; urllib does not replay
@@ -1389,6 +1552,7 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls,
                 req = urllib.request.Request(target, data=body,
                                              method="POST", headers=hdrs)
                 with urllib.request.urlopen(req, timeout=30) as r:
+                    _rr_note_quota(r.headers)
                     data = json.loads(r.read().decode())
         except urllib.error.HTTPError as e:
             detail = ""

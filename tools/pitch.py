@@ -280,9 +280,18 @@ def main():
     print(text)
 
     if a.write:
-        slug = re.sub(r"[^a-z0-9]+", "-",
-                      f"{a.company}-{a.role}".lower()).strip("-")[:60] or "pitch"
-        d = WORKSPACE / "applications" / slug
+        # Write beside the job description when one was given, so the pitch lands
+        # in the folder that already holds the README and the letter. The first
+        # version always minted a slug from company+role, which produced a
+        # SECOND folder whenever the directory had been named by hand - three
+        # duplicate pairs before anyone noticed.
+        jd_dir = Path(a.jd).resolve().parent
+        if jd_dir.parent.name == "applications":
+            d = jd_dir
+        else:
+            slug = re.sub(r"[^a-z0-9]+", "-",
+                          f"{a.company}-{a.role}".lower()).strip("-")[:60] or "pitch"
+            d = WORKSPACE / "applications" / slug
         d.mkdir(parents=True, exist_ok=True)
         (d / "pitch.md").write_text(text, encoding="utf-8")
         print(f"\nwritten to applications/{slug}/pitch.md")

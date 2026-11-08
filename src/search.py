@@ -1296,6 +1296,36 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
     return results
 
 
+# RemoteRocketship's JSON carries no location field, but its `slug` does:
+#   "ai-growth-engineer-united-states-remote"
+# i.e. <slugified role title>-<location>-remote[-N]. Recovering it is the
+# difference between knowing where 97% of the biggest source's jobs are and
+# guessing. Measured on the 2026-11-08 archive of 825 records: 817 slugs end in
+# "-remote", 807 yield a location, and 35% of them CONTRADICT the region filter
+# the job came back under - 32 of the 84 rows labelled "United Arab Emirates"
+# are actually United States, and none are actually in the UAE.
+_RR_SLUG_TAIL = re.compile(r"-remote(?:-\d+)?$")
+
+
+def _rr_location_from_slug(slug, role_title):
+    """The real location from a RemoteRocketship slug, or "" if unrecoverable."""
+    if not slug or not role_title:
+        return ""
+    tail = _RR_SLUG_TAIL.sub("", slug.strip().lower())
+    title = re.sub(r"[^a-z0-9]+", "-", role_title.lower()).strip("-")
+    if not title or not tail.startswith(title):
+        # RR slugified the title differently than we do. Rather than guess at
+        # where the title ends and the place begins, give up and let the caller
+        # fall back to the inferred region.
+        return ""
+    place = tail[len(title):].strip("-")
+    # A place is a few words. Anything longer is leftover title, and anything
+    # numeric is a disambiguating suffix we failed to strip.
+    if not place or len(place.split("-")) > 4 or place.replace("-", "").isdigit():
+        return ""
+    return place.replace("-", " ").title()
+
+
 def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls,
                      raw_sink=None, start_page=1, req_sink=None):
     """
@@ -1424,7 +1454,9 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls,
             # States (Remote)", fails the 4-hour hard filter outright. The flag
             # is what makes the original intent actually hold; see
             # location_inferred in rank.py.
-            location = region or "Worldwide (remote)"
+            real_location = _rr_location_from_slug(
+                safe_str(j.get("slug", "")), safe_str(j.get("roleTitle", "")))
+            location = real_location or region or "Worldwide (remote)"
 
             results.append({
                 "title": html.unescape(safe_str(j.get("roleTitle", ""))),
@@ -1437,7 +1469,7 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls,
                 "location": location,
                 # True = `location` is the region we filtered on, not a fact
                 # about the job. Ranking must not drop or weight on it.
-                "location_inferred": True,
+                "location_inferred": not real_location,
                 "matched_region": region or "",
                 "posted": safe_str(j.get("created_at", ""))[:10],
                 "tags": ", ".join((j.get("techStack") or [])[:6]),

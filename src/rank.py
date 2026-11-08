@@ -114,12 +114,14 @@ def location_is_real(job):
     drop, not to weight, not to bonus. A guess is not evidence, and a guess
     that can silently delete a job is worse than no guess.
     """
-    if job.get("location_inferred"):
-        return False
-    # Fall back to the source. The flag is set at fetch time, so snapshots in
-    # data/raw/ taken before it existed do not carry it, and --offline replays
-    # those. Deriving it from the source as well means the rule holds for
-    # history too, and keeps holding if a future fetch path forgets the flag.
+    # An explicit flag always wins. search.py sets it False once it has
+    # recovered a real location from the slug, and the fallback below must not
+    # then veto that - which it did on first attempt, silently keeping 650 rows
+    # at region=unknown after their locations had been correctly recovered.
+    if "location_inferred" in job:
+        return not job["location_inferred"]
+    # No flag at all: snapshots in data/raw/ taken before it existed, replayed
+    # by --offline. Treat this source as unlocated, because it was.
     return not str(job.get("source", "")).lower().startswith("remoterocketship")
 
 

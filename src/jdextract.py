@@ -198,7 +198,35 @@ CASE_DIRS = {
 }
 
 
+CASES_DIR = WORKSPACE / "tests" / "jd_extraction" / "cases"
+
+
+def _manifest():
+    p = CASES_DIR / "MANIFEST.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _fidelity():
+    """Which cases are the employer's own text and which were typed by hand.
+
+    A miss on a paraphrase says as much about the retyping as about the
+    extractor, so the two are never reported as one number.
+    """
+    return {k: v.get("fidelity", "?") for k, v in _manifest().items()}
+
+
 def _load_case_text(name):
+    # Prefer the captured posting. tools/capture_jd.py pulls it from the
+    # employer's own board API; the applications/ copies are retyped and lossy
+    # (Streamhub's lost "Bengaluru, IN" entirely).
+    p = CASES_DIR / (name + ".txt")
+    if p.exists():
+        return p.read_text(encoding="utf-8", errors="replace")
     folder = CASE_DIRS.get(name)
     if not folder:
         return None
@@ -216,36 +244,59 @@ def cmd_eval():
     fields = ["experience_floor_years", "seniority", "employment_type",
               "india_status", "experience_negotiable"]
     score = {f: [0, 0] for f in fields}
+    by_fid = {"board-api": {f: [0, 0] for f in fields},
+              "hand-paraphrase": {f: [0, 0] for f in fields}}
+    man = _manifest()
+    fid = {k: v.get("fidelity", "?") for k, v in man.items()}
     missing = []
 
-    print("layer 1 (regex) against " + str(len(cases)) + " hand-labelled cases\n")
+    print("layer 1 (regex) against " + str(len(cases)) + " hand-labelled cases")
+    print("  src  real = employer's own board API | hand = retyped by a human\n")
     for c in cases:
         want = json.loads(c.read_text(encoding="utf-8"))
         text = _load_case_text(c.stem)
         if not text:
             missing.append(c.stem)
             continue
-        got = extract(text)
+        f_kind = fid.get(c.stem, "?")
+        # Feed it what the pipeline feeds it: title AND body. A board API returns
+        # the body alone, while the retyped files had the title baked into the
+        # first line - which is why seniority scored 6/6 on paraphrases and 1/10
+        # on real text before this was passed.
+        got = extract(text, man.get(c.stem, {}).get("title", ""))
         row = []
         for f in fields:
             w, g = want.get(f), got.get(f)
             score[f][1] += 1
+            if f_kind in by_fid:
+                by_fid[f_kind][f][1] += 1
             if w == g:
                 score[f][0] += 1
+                if f_kind in by_fid:
+                    by_fid[f_kind][f][0] += 1
                 row.append(f.split("_")[0][:6] + "=ok")
             else:
                 row.append(f.split("_")[0][:6] + "=" + repr(g) + "!=" + repr(w))
-        print("  " + c.stem[:34].ljust(35) + "  ".join(row))
+        tag = {"board-api": "real", "hand-paraphrase": "hand"}.get(f_kind, "  ? ")
+        print("  " + tag + "  " + c.stem[:32].ljust(33) + "  ".join(row))
 
     print()
+    print("  " + "field".ljust(26) + "overall      real        hand")
     for f in fields:
         ok, n = score[f]
-        if n:
-            print("  " + f.ljust(26) + str(ok) + "/" + str(n)
-                  + "  (" + str(100 * ok // n) + "%)")
+        if not n:
+            continue
+        def frac(pair):
+            o, t = pair
+            return (str(o) + "/" + str(t)).ljust(7) if t else "-".ljust(7)
+        print("  " + f.ljust(26)
+              + (str(ok) + "/" + str(n) + " " + str(100 * ok // n) + "%").ljust(13)
+              + frac(by_fid["board-api"][f]) + "     "
+              + frac(by_fid["hand-paraphrase"][f]))
     if missing:
-        print("\n  no source text for " + str(len(missing)) + " case(s)")
-        print("  only roles with a saved jd.txt can be scored")
+        print("\n  no source text for " + str(len(missing)) + " case(s): "
+              + ", ".join(missing))
+        print("  run tools/capture_jd.py, or the posting has closed")
     return 0
 
 

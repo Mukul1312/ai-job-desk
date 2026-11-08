@@ -1,0 +1,149 @@
+{
+  "circuithub-applied-ai": {
+    "captured": "2026-11-08",
+    "chars": 4167,
+    "fidelity": "board-api",
+    "job_id": "52a918be-07d",
+    "location": "Remote, London, UK, Cambridge, UK",
+    "platform": "ashby",
+    "slug": "circuithub",
+    "title": "Software Engineer, Applied AI",
+    "url": "https://jobs.ashbyhq.com/circuithub/52a918be-07d1-4211-89ca-ed2d4b7a61c5"
+  },
+  "clickhouse-clickstack": {
+    "captured": "2026-11-08",
+    "chars": 5546,
+    "fidelity": "board-api",
+    "job_id": "03b2433e",
+    "location": "United Kingdom, Canada, Germany, United States, The Netherlands",
+    "platform": "ashby",
+    "slug": "clickhouse",
+    "title": "AI Product Engineer - ClickStack",
+    "url": "https://jobs.ashbyhq.com/clickhouse/03b2433e-6a7b-4f79-a75e-c7371365d527"
+  },
+  "clickhouse-swe-ts-frontend": {
+    "captured": "2026-11-08",
+    "chars": 4129,
+    "fidelity": "board-api",
+    "job_id": "33313f14",
+    "location": "The Netherlands",
+    "platform": "ashby",
+    "slug": "clickhouse",
+    "title": "Senior Software Engineer (Typescript / FrontEnd) - AI/ML",
+    "url": "https://jobs.ashbyhq.com/clickhouse/33313f14-1a98-4cd1-8baa-edb818316e2b"
+  },
+  "cresta-ai-growth-engineer": {
+    "captured": "2026-11-08",
+    "chars": 7493,
+    "fidelity": "board-api",
+    "job_id": "5476118008",
+    "location": "United States (Remote)",
+    "platform": "greenhouse",
+    "slug": "cresta",
+    "title": "AI Growth Engineer",
+    "url": "https://job-boards.greenhouse.io/cresta/jobs/5476118008"
+  },
+  "eventfirst-senior-fullstack": {
+    "chars": 3126,
+    "fidelity": "hand-paraphrase",
+    "note": "no public board API for this ATS; labels derived from this text may not match the page",
+    "source": "eventfirst-senior-fullstack-ts-ai"
+  },
+  "gitlab-senior-backend-ruby": {
+    "captured": "2026-11-08",
+    "chars": 7401,
+    "fidelity": "board-api",
+    "job_id": "8682860002",
+    "location": "Remote, United Kingdom",
+    "platform": "greenhouse",
+    "slug": "gitlab",
+    "title": "Backend Engineer (Ruby), Plan: Spec-Driven Development",
+    "url": "https://job-boards.greenhouse.io/gitlab/jobs/8682860002"
+  },
+  "gp-ai-engineer-ireland": {
+    "captured": "2026-11-08",
+    "chars": 5625,
+    "fidelity": "board-api",
+    "job_id": "8034410003",
+    "location": "Ireland (Remote-First)",
+    "platform": "greenhouse",
+    "slug": "globalizationpartners",
+    "title": "AI Engineer I",
+    "url": "https://job-boards.greenhouse.io/globalizationpartners/jobs/8034410003"
+  },
+  "gp-ai-engineer-uk": {
+    "captured": "2026-11-08",
+    "chars": 5619,
+    "fidelity": "board-api",
+    "job_id": "8034413003",
+    "location": "United Kingdom (Remote-First)",
+    "platform": "greenhouse",
+    "slug": "globalizationpartners",
+    "title": " AI Engineer I",
+    "url": "https://job-boards.greenhouse.io/globalizationpartners/jobs/8034413003"
+  },
+  "marcopolo-ai-product-engineer": {
+    "chars": 2473,
+    "fidelity": "hand-paraphrase",
+    "note": "no public board API for this ATS; labels derived from this text may not match the page",
+    "source": "marcopolo-ai-product-engineer"
+  },
+  "marrina-ai-engineer-saas": {
+    "chars": 2251,
+    "fidelity": "hand-paraphrase",
+    "note": "no public board API for this ATS; labels derived from this text may not match the page",
+    "source": "marrina-ai-engineer-saas"
+  },
+  "newrocket-fde-uk": {
+    "captured": "2026-11-08",
+    "caveat": "two near-identical UK postings exist (6164664004, 6164673004); the longer was taken",
+    "chars": 15032,
+    "fidelity": "board-api",
+    "job_id": "6164664004",
+    "location": "UK - Remote",
+    "platform": "greenhouse",
+    "slug": "highmetric",
+    "title": "Forward Deployed AI Engineer-Anthropic-UK",
+    "url": "https://www.newrocket.com/careers/job?gh_jid=6164664004&gh_jid=6164664004"
+  },
+  "newrocket-senior-lead-fde-nl": {
+    "captured": "2026-11-08",
+    "chars": 13971,
+    "fidelity": "board-api",
+    "job_id": "6166119004",
+    "location": "NL- Remote",
+    "platform": "greenhouse",
+    "slug": "highmetric",
+    "title": "Senior/Lead Forward Deployed AI Engineer-Anthropic-Netherlands/Western Europe",
+    "url": "https://www.newrocket.com/careers/job?gh_jid=6166119004&gh_jid=6166119004"
+  },
+  "shuru-voice-ai-engineer": {
+    "chars": 1400,
+    "fidelity": "hand-paraphrase",
+    "note": "no public board API for this ATS; labels derived from this text may not match the page",
+    "source": "shuru-voice-ai-engineer"
+  },
+  "streamhub-fullstack-automation": {
+    "chars": 2898,
+    "fidelity": "hand-paraphrase",
+    "note": "no public board API for this ATS; labels derived from this text may not match the page",
+    "source": "streamhub-fullstack-automation-ai-eval"
+  },
+  "sword-health-senior-ai-swe": {
+    "captured": "2026-11-08",
+    "chars": 4657,
+    "fidelity": "board-api",
+    "job_id": "4422658009",
+    "location": "Remote - Portugal",
+    "platform": "greenhouse",
+    "slug": "swordhealth",
+    "title": "Senior AI Software Engineer",
+    "url": "https://job-boards.greenhouse.io/swordhealth/jobs/4422658009"
+  },
+  "synthio-labs-swe-ai": {
+    "chars": 2677,
+    "fidelity": "hand-paraphrase",
+    "note": "no public board API for this ATS; labels derived from this text may not match the page",
+    "source": "synthio-labs-software-engineer-ai"
+  }
+}

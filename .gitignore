@@ -79,3 +79,8 @@ tools/__pycache__/
 # Cover letters and per-application notes. Personal, and some quote facts that
 # are private. Backed up by tools/backup_private.py.
 applications/
+
+# Captured job-posting text. Third-party copyrighted content - the manifest
+# records every URL so tools/capture_jd.py can re-fetch it, but the text itself
+# is not republished here.
+tests/jd_extraction/cases/*.txt

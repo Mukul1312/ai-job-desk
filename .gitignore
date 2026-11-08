@@ -84,3 +84,7 @@ applications/
 # records every URL so tools/capture_jd.py can re-fetch it, but the text itself
 # is not republished here.
 tests/jd_extraction/cases/*.txt
+
+# Held-out posting text: third-party copyrighted content. MANIFEST.json and
+# labels/ are kept - they are our measurements, with short quotes.
+tests/heldout/cases/*.txt

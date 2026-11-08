@@ -151,11 +151,35 @@ def set_status(db, needle, status, note=""):
     return 0
 
 
-def cmd_due(db):
-    """What needs doing. The default, deliberately."""
+def cmd_due(db, brief=False):
+    """What needs doing. The default, deliberately.
+
+    `brief` is the tail of ./run.sh. A daily search that ends by printing a URL
+    tells you where to go and look at more jobs; ending it with the queue puts
+    the next action in front of you at the one moment you are already looking.
+    Three lines, because anything longer gets scrolled past.
+    """
     rows = [a for a in db["applications"] if a["status"] in ACTIVE]
     if not rows:
         print("Nothing tracked. Try --import-seed or --from-report N.")
+        return 0
+
+    if brief:
+        interested = [a for a in rows if a["status"] == "interested"]
+        sent = [a for a in db["applications"] if a.get("applied_on")]
+        oldest = max((_days(a["added"]) or 0) for a in interested) if interested else 0
+        # ASCII only. run.sh pipes this through a cp1252 Windows console, where
+        # a middot renders as a replacement character.
+        print(f"  {len(interested)} open, never applied to" +
+              (f"  |  oldest has waited {oldest}d" if oldest else "") +
+              f"  |  {len(sent)} sent so far")
+        # Deliberately no example rows here. This tool sorts by age, and the
+        # oldest open roles are often ones you cannot take - the two at the top
+        # today are Ireland and Singapore. Naming them would send you at a job
+        # that was never available. queue.py is the one that knows about
+        # location and the resume variant, so point at it instead of guessing.
+        if interested:
+            print("    python tools/queue.py     # only the ones you can take, with the resume to send")
         return 0
 
     overdue, fine = [], 0
@@ -309,7 +333,7 @@ def main(argv):
         st = a[a.index("--status") + 1] if "--status" in a else None
         return cmd_list(db, st)
 
-    return cmd_due(db)
+    return cmd_due(db, brief="--brief" in a)
 
 
 if __name__ == "__main__":

@@ -48,6 +48,23 @@ else
   echo "  data/ is not a git repo — skipping backup"
 fi
 
+# The career material is gitignored here because this remote is public, so it
+# is backed up to a separate private repo. It changes far less often than
+# data/, but it is the part that cannot be re-fetched: 83 verified facts took a
+# full session to build, and re-deriving them means re-reading the git history
+# of 62 repos. Cheap when nothing changed, so it runs every time.
+echo
+echo "── back up career material ────────────────────────────"
+BK="$(python tools/backup_private.py 2>&1)"
+if [ $? -eq 0 ]; then
+  # Only the outcome line. The per-file detail is useful when run by hand and
+  # pure noise at the end of a long search run.
+  echo "$BK" | grep -E "already up to date|pushed to|committed:|!!" | sed 's/^ */  /' | tail -2
+else
+  echo "  !! backup failed — facts/, prep/ and docs/ are NOT backed up:"
+  echo "$BK" | grep -E "!!|Error|error" | sed 's/^ */     /' | head -3
+fi
+
 if [ "$DEPLOY" = "1" ]; then
   echo
   echo "── deploy ─────────────────────────────────────────────"
@@ -69,3 +86,9 @@ rm -f "$RUNLOG" 2>/dev/null
 
 echo "  Site:   https://ai-job-desk.vercel.app"
 echo "  Report: daily_report.md"
+
+# A run that ends on a URL tells you where to go and look at more jobs, which
+# is the thing there is already too much of. Ending on the queue puts the next
+# action in front of you at the one moment you are certainly still looking.
+echo
+python tools/track.py --brief 2>/dev/null || true

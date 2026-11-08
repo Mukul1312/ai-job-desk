@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Application Recorder</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --fg: #18181b;
+        --muted: #71717a;
+        --line: #e4e4e7;
+        --accent: #2563eb;
+        --accent-fg: #ffffff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #18181b;
+          --fg: #fafafa;
+          --muted: #a1a1aa;
+          --line: #3f3f46;
+          --accent: #3b82f6;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        width: 320px;
+        margin: 0;
+        padding: 14px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      h1 { font-size: 14px; margin: 0 0 2px; }
+      .sub { color: var(--muted); font-size: 11px; margin-bottom: 12px; }
+      .counts { display: flex; gap: 8px; margin-bottom: 12px; }
+      .card {
+        flex: 1;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+      .n { font-size: 20px; font-weight: 600; }
+      .k { color: var(--muted); font-size: 11px; }
+      table { width: 100%; border-collapse: collapse; }
+      td { padding: 3px 0; }
+      td.r { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+      .empty { color: var(--muted); font-size: 12px; padding: 10px 0; }
+      .row { display: flex; gap: 8px; margin-top: 12px; }
+      button {
+        flex: 1;
+        font: inherit;
+        padding: 7px 10px;
+        border-radius: 7px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--fg);
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--accent-fg);
+      }
+      button:hover { opacity: 0.88; }
+      .note {
+        margin-top: 10px;
+        padding-top: 9px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Application Recorder</h1>
+    <div class="sub">Observes only. Never fills, submits, or uploads.</div>
+
+    <div class="counts">
+      <div class="card"><div class="n" id="submitted">0</div><div class="k">submitted</div></div>
+      <div class="card"><div class="n" id="seen">0</div><div class="k">forms seen</div></div>
+    </div>
+
+    <table id="breakdown"></table>
+    <div class="empty" id="empty">
+      Nothing recorded yet. Open a job application and it will appear here.
+    </div>
+
+    <div class="row">
+      <button class="primary" id="export">Export JSON</button>
+      <button id="clear">Clear</button>
+    </div>
+
+    <div class="note">
+      Field names and labels are stored so we can tell one system's form from
+      another. What you type into them is never read.
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

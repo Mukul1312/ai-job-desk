@@ -39,3 +39,39 @@ data/
 web/node_modules/
 web/.vercel/
 web/public/data/
+
+# Resolved apply destinations (rebuildable cache)
+apply_destinations_cache.json
+
+# Exported application logs from the recorder extension
+applications-*.json
+
+# Application tracker (personal)
+applications.json
+
+# ---------------------------------------------------------------------------
+# Personal career material. THIS REMOTE IS PUBLIC (github.com/Mukul1312/ai-job-desk),
+# so these stay out of it. Added 2026-11-08 after an audit found nothing was
+# stopping `git add .` from publishing them.
+#
+# They are NOT disposable - facts/ is 83 verified facts that took a full session
+# to build and exists on one disk only. Back them up to a SEPARATE PRIVATE repo,
+# the same way data/ is handled. See docs/INTEGRATION-PLAN-CRITIQUE.md item 4.
+# ---------------------------------------------------------------------------
+
+# Verified work history. Names colleagues, records whose work is whose, and
+# carries _DO_NOT_CLAIM / know_before_claiming notes never meant to be read by
+# anyone but you.
+facts/
+
+# Interview prep. Concept cards quote the same colleague attributions.
+prep/
+
+# Session notes, decisions and the integration plan. Name colleagues, the
+# employer, and the open questions on specific resume claims.
+docs/
+
+# Self-rated skill levels (117 skills, including the ones rated 'Critical gap').
+config/skill_demand.json
+
+tools/__pycache__/

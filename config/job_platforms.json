@@ -1,0 +1,102 @@
+{
+  "_source": "Notion 'Job Search Platforms' database, migrated 2026-11-08.",
+  "_note": "Names only - Notion held no further fields. Six are already automated in config/platforms.json; the rest are manual or candidates for a future fetcher. Ashby, Greenhouse, Lever and Dover are ATS products rather than boards: they matter because src/resolve.py classifies destinations by them.",
+  "platforms": [
+    {
+      "name": "Working Nomads",
+      "automated_as": "workingnomads"
+    },
+    {
+      "name": "Hugging Face Jobs",
+      "automated_as": null
+    },
+    {
+      "name": "Ashby",
+      "automated_as": null
+    },
+    {
+      "name": "Hacker News \"Who is Hiring\"",
+      "automated_as": "hn_hiring"
+    },
+    {
+      "name": "LinkedIn Jobs (Remote filter + alerts)",
+      "automated_as": null
+    },
+    {
+      "name": "Uplers / BestKaam / BeBee / jobgether-clones / munotes / Kula / Hiring.Camp / RemoteFront / OpenToWorkRemote / Taskworks / Prairie",
+      "automated_as": null
+    },
+    {
+      "name": "HireIndex",
+      "automated_as": null
+    },
+    {
+      "name": "We Work Remotely",
+      "automated_as": "weworkremotely"
+    },
+    {
+      "name": "Himalayas",
+      "automated_as": "himalayas"
+    },
+    {
+      "name": "Turing",
+      "automated_as": null
+    },
+    {
+      "name": "Greenhouse",
+      "automated_as": null
+    },
+    {
+      "name": "Instahyre",
+      "automated_as": null
+    },
+    {
+      "name": "BuiltIn",
+      "automated_as": null
+    },
+    {
+      "name": "Dover",
+      "automated_as": null
+    },
+    {
+      "name": "ai-jobs.net",
+      "automated_as": null
+    },
+    {
+      "name": "Remote OK",
+      "automated_as": "remoteok"
+    },
+    {
+      "name": "Naukri.com",
+      "automated_as": null
+    },
+    {
+      "name": "Wellfound (AngelList Talent)",
+      "automated_as": null
+    },
+    {
+      "name": "Jobgether",
+      "automated_as": null
+    },
+    {
+      "name": "RemoteRocketship",
+      "automated_as": "remoterocketship"
+    },
+    {
+      "name": "Cutshort",
+      "automated_as": null
+    },
+    {
+      "name": "Y Combinator (Work at a Startup)",
+      "automated_as": null
+    },
+    {
+      "name": "Weekday",
+      "automated_as": null
+    },
+    {
+      "name": "Lever",
+      "automated_as": null
+    }
+  ]
+}

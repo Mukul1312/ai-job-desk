@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Job Application Recorder",
+  "version": "0.1.0",
+  "description": "Records where your job applications actually go. Observes only - never fills a field, never submits a form, never sends data anywhere.",
+
+  "permissions": ["storage"],
+
+  "_host_permissions_note": "Applications live on arbitrary company domains, so the content script has to be allowed everywhere. It bails out within a few milliseconds on any page that does not look like an application form - see shouldRecord() in content.js.",
+  "host_permissions": ["<all_urls>"],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["ats-patterns.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Job Application Recorder"
+  }
+}

@@ -118,9 +118,22 @@ def score_fact(fact, want):
     return score, hits_kw, hits_body
 
 
-def pick_resume(jd_text):
-    """Measure each variant against the posting. The title is not consulted."""
+def pick_resume(jd_text, projects=None):
+    """Measure each variant against the posting. The title is not consulted.
+
+    Ties are broken by how well the FACTS tagged to each tier match the posting,
+    not alphabetically. Without that, a Voice AI Engineer role that tied 13-13
+    between `swe` and `ai` picked `swe`, because "swe" sorts above "ai" - an
+    arbitrary answer dressed up as a measurement.
+    """
     want = tokens(jd_text)
+    tier_fact_score = {}
+    if projects:
+        for _, proj in projects:
+            for fact in proj["facts"]:
+                sc, _, _ = score_fact(fact, want)
+                for t in fact.get("tiers", []):
+                    tier_fact_score[t] = tier_fact_score.get(t, 0) + sc
     out = []
     for tier, stem in VARIANTS.items():
         p = RESUME_DIR / f"{stem}.docx"
@@ -132,7 +145,7 @@ def pick_resume(jd_text):
         except Exception:
             continue
         text = " ".join(re.findall(r"<w:t[^>]*>(.*?)</w:t>", xml, re.S))
-        out.append((len(tokens(text) & want), tier))
+        out.append((len(tokens(text) & want), tier_fact_score.get(tier, 0), tier))
     out.sort(reverse=True)
     return out
 
@@ -201,16 +214,16 @@ def main():
       f"The posting contributed {len(want)} distinct terms.\n")
 
     # resume
-    ranked = pick_resume(jd_raw)
+    ranked = pick_resume(jd_raw, projects)
     if ranked:
         best = ranked[0]
         w("## Resume to send\n")
-        w(f"**{VARIANTS[best[1]]}.pdf**  ({best[1]})\n")
-        w("| variant | terms shared with this posting |")
-        w("|---|---|")
-        for n, tier in ranked:
-            mark = "  **<- send this**" if tier == best[1] else ""
-            w(f"| {tier} | {n}{mark} |")
+        w(f"**{VARIANTS[best[2]]}.pdf**  ({best[2]})\n")
+        w("| variant | terms shared | matching facts in this tier |")
+        w("|---|---|---|")
+        for n, fs, tier in ranked:
+            mark = "  **<- send this**" if tier == best[2] else ""
+            w(f"| {tier} | {n} | {fs}{mark} |")
         w("")
         w("Measured against the posting's own words. The job title is deliberately "
           "not consulted - it mispicked twice when it was.\n")

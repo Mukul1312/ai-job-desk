@@ -1,0 +1,13 @@
+{
+  "company": "eventfirst",
+  "locations": [
+    "Germany"
+  ],
+  "india_status": "unstated",
+  "experience_floor_years": null,
+  "experience_ceiling_years": null,
+  "experience_negotiable": true,
+  "seniority": "senior",
+  "employment_type": "freelance",
+  "_source": "hand-read from the real posting; see applications/ for the write-up"
+}

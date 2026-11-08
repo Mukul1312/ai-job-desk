@@ -1,0 +1,14 @@
+{
+  "company": "MarcoPolo Learning",
+  "locations": [
+    "India"
+  ],
+  "india_status": "explicit_yes",
+  "experience_floor_years": 5,
+  "experience_ceiling_years": 8,
+  "experience_negotiable": true,
+  "seniority": null,
+  "employment_type": "contract",
+  "_source": "hand-read from the real posting; see applications/ for the write-up",
+  "_seniority_note": "was labelled 'senior' by inference; the posting states no seniority word, so the honest expected value is null. Ground truth must be what the text says."
+}

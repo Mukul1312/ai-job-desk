@@ -1,0 +1,14 @@
+{
+  "company": "Streamhub",
+  "locations": [
+    "India"
+  ],
+  "india_status": "explicit_yes",
+  "experience_floor_years": 4,
+  "experience_ceiling_years": null,
+  "experience_negotiable": false,
+  "seniority": null,
+  "employment_type": "fte",
+  "_source": "hand-read from the real posting; see applications/ for the write-up",
+  "_seniority_note": "was labelled 'mid' by inference; the posting states no seniority word, so the honest expected value is null. Ground truth must be what the text says."
+}

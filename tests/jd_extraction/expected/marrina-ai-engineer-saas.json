@@ -1,0 +1,14 @@
+{
+  "company": "Marrina Decisions",
+  "locations": [
+    "India"
+  ],
+  "india_status": "explicit_yes",
+  "experience_floor_years": 3,
+  "experience_ceiling_years": 5,
+  "experience_negotiable": false,
+  "seniority": "mid",
+  "employment_type": "fte",
+  "_source": "hand-read from the real posting; see applications/ for the write-up",
+  "_seniority_note": "the posting states 'Minimum Experience: Mid-level' - this one IS in the text"
+}

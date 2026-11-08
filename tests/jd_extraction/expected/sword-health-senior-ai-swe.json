@@ -1,0 +1,13 @@
+{
+  "company": "Sword Health",
+  "locations": [
+    "Portugal"
+  ],
+  "india_status": "unstated",
+  "experience_floor_years": 4,
+  "experience_ceiling_years": null,
+  "experience_negotiable": false,
+  "seniority": "senior",
+  "employment_type": "fte",
+  "_source": "hand-read from the real posting; see applications/ for the write-up"
+}

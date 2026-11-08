@@ -1,0 +1,14 @@
+{
+  "company": "Binance",
+  "locations": [
+    "Taiwan",
+    "Hong Kong"
+  ],
+  "india_status": "unstated",
+  "experience_floor_years": null,
+  "experience_ceiling_years": null,
+  "experience_negotiable": false,
+  "seniority": "intern",
+  "employment_type": "internship",
+  "_source": "hand-read from the real posting; see applications/ for the write-up"
+}

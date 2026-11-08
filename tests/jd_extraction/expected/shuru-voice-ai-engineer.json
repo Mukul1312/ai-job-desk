@@ -1,0 +1,13 @@
+{
+  "company": "Shuru",
+  "locations": [
+    "India"
+  ],
+  "india_status": "explicit_yes",
+  "experience_floor_years": null,
+  "experience_ceiling_years": null,
+  "experience_negotiable": false,
+  "seniority": "senior",
+  "employment_type": "fte",
+  "_source": "hand-read from the real posting; see applications/ for the write-up"
+}

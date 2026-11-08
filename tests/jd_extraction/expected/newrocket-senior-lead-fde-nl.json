@@ -1,0 +1,13 @@
+{
+  "company": "NewRocket",
+  "locations": [
+    "The Netherlands"
+  ],
+  "india_status": "unstated",
+  "experience_floor_years": 8,
+  "experience_ceiling_years": null,
+  "experience_negotiable": false,
+  "seniority": "lead",
+  "employment_type": "fte",
+  "_source": "hand-read from the real posting; see applications/ for the write-up"
+}

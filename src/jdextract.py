@@ -37,9 +37,11 @@ from pathlib import Path
 
 WORKSPACE = Path(__file__).parent.parent
 
-# "5+ years", "3-5 years", "8-10+ years", "5 to 8 years", "minimum 2 years"
+# "5+ years", "3-5 years", "8-10+ years", "5 to 8 years", "minimum 2 years",
+# "2 ~ 4 years" - the tilde separator is real: without it the range reads as a
+# bare "4 years" and the floor comes out 4 instead of 2.
 YEARS = re.compile(
-    r"(?:(?P<min>\d{1,2})\s*(?:[-–—]|\s+to\s+)\s*(?P<max>\d{1,2})\+?"
+    r"(?:(?P<min>\d{1,2})\s*(?:[-–—~]|\s+to\s+)\s*(?P<max>\d{1,2})\+?"
     r"|(?P<only>\d{1,2})\+?)\s*(?:\+\s*)?years?\b",
     re.I)
 
@@ -49,6 +51,24 @@ REQUIRE_CUE = re.compile(
     r"\b(experience|experienced|background|working|worked|building|built|"
     r"developing|engineering|minimum|at least|require[ds]?|looking for|"
     r"you have|you bring|track record|hands-on|in production)\b", re.I)
+
+# REQUIRE_CUE alone is not enough, measured on 317 real postings: it passed
+# "Payward ... has spent the last 15 years building one of the most modern..."
+# and reported a 15-year floor on a role asking for 3. The cue word was
+# "building"; the subject was the company.
+#
+# Nine of fourteen floor disagreements were this shape, and they fail in the
+# expensive direction - a false floor drops a reachable role before anyone sees
+# it. These veto a match outright rather than scoring it lower.
+NOT_A_REQUIREMENT = re.compile(
+    r"(spent the (?:last|past)"                       # company history
+    r"|within the (?:next|last|past)"                 # "AI will ... within the next 10 years"
+    r"|\d{1,2}\s*\+?\s*years? ago"                    # "playbooks that worked 5 years ago"
+    r"|every \d{1,2}\s*\+?\s*years"                   # "Every 2 years, a budget of EUR1250"
+    r"|\bcompany\b[^.]{0,70}?\d{1,2}\s*\+?\s*years"   # "a company with 15+ years of experience"
+    r"|\d{1,2}\s*\+?\s*years[^.]{0,40}\bhistory\b"
+    r"|\bfounded\b[^.]{0,40}\d{4}"
+    r"|\bbudget of\b)", re.I)
 
 # The qualifier that reverses the floor. MarcoPolo and eventfirst both carry one,
 # and both are reachable targets BECAUSE of it.
@@ -121,6 +141,9 @@ def experience(text):
         ctx = _sentence_around(text, m.start(), m.end())
         if not REQUIRE_CUE.search(ctx):
             continue                     # a number, but not a requirement
+        if NOT_A_REQUIREMENT.search(ctx):
+            continue                     # a requirement-shaped sentence about
+                                         # the company, the future, or a perk
         lo = int(m.group("min") or m.group("only"))
         hi = int(m.group("max")) if m.group("max") else None
         # Highest stated floor wins: "5+ years, including 1-2 years on LLM

@@ -88,3 +88,7 @@ tests/jd_extraction/cases/*.txt
 # Held-out posting text: third-party copyrighted content. MANIFEST.json and
 # labels/ are kept - they are our measurements, with short quotes.
 tests/heldout/cases/*.txt
+
+# Fetched posting text and its extractions: third-party content.
+data/jd_text/
+jd_extract_cache.json

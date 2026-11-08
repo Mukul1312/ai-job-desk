@@ -75,3 +75,7 @@ docs/
 config/skill_demand.json
 
 tools/__pycache__/
+
+# Cover letters and per-application notes. Personal, and some quote facts that
+# are private. Backed up by tools/backup_private.py.
+applications/

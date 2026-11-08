@@ -50,6 +50,7 @@ PATHS = [
     "facts",
     "prep",
     "docs",
+    "applications",
     "applications.json",
     "config/skill_demand.json",
 ]

@@ -59,6 +59,19 @@ UA = {"User-Agent": "Mozilla/5.0 (compatible; job-desk/1.0)"}
 GH = re.compile(r"greenhouse\.io/(?:embed/job_app\?for=)?([a-z0-9_-]+)/jobs/(\d+)", re.I)
 ASH = re.compile(r"ashbyhq\.com/([a-z0-9_.%-]+)/([0-9a-f-]{8,})", re.I)
 
+# Platforms whose board API returns the posting body. Checked one by one against
+# real URLs from data/raw/ - three that board.py can list do NOT return text and
+# are deliberately absent:
+#   personio  search.json has description: ""      (16 jobs)
+#   bamboohr  /careers/list has no body; the detail JSON shape differs  (22)
+#   breezy    /json lists postings but carries no body; HTML only       (14)
+MORE = [
+    ("lever",           re.compile(r"jobs\.lever\.co/([a-z0-9_-]+)/([0-9a-f-]{8,})", re.I)),
+    ("workable",        re.compile(r"apply\.workable\.com/([a-z0-9_-]+)/j/([A-Z0-9]+)", re.I)),
+    ("smartrecruiters", re.compile(r"jobs\.smartrecruiters\.com/([A-Za-z0-9_-]+)/(\d+)", re.I)),
+    ("recruitee",       re.compile(r"([a-z0-9_-]+)\.recruitee\.com/o/([a-z0-9-]+)", re.I)),
+]
+
 MODEL = "claude-haiku-5-5"
 IN_RATE, OUT_RATE = 0.10, 0.50          # $ per 1M tokens
 
@@ -93,6 +106,10 @@ def _resolve(r):
     a = ASH.search(blob)
     if a:
         return "ashby", urllib.parse.unquote(a.group(1)), a.group(2)
+    for name, pat in MORE:
+        m = pat.search(blob)
+        if m:
+            return name, urllib.parse.unquote(m.group(1)), m.group(2)
     return None, None, None
 
 
@@ -106,7 +123,80 @@ def _detag(raw):
     return "\n".join(l.strip() for l in re.sub(r"\n{3,}", "\n\n", t).split("\n")).strip()
 
 
+def _json(url):
+    with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=45) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def _lever(slug):
+    out = {}
+    for j in _json("https://api.lever.co/v0/postings/%s?mode=json" % slug):
+        # The body is split: descriptionPlain is the intro, `lists` holds the
+        # requirements as structured bullets. Either alone is a third of the
+        # posting.
+        parts = [j.get("descriptionPlain") or ""]
+        for L in (j.get("lists") or []):
+            parts.append((L.get("text") or "") + "\n" + _detag(L.get("content")))
+        parts.append(j.get("additionalPlain") or "")
+        cat = j.get("categories") or {}
+        out[j.get("id", "")] = {
+            "text": "\n\n".join(p for p in parts if p.strip()),
+            "title": j.get("text", ""),
+            "location": ", ".join(x for x in [cat.get("location"), j.get("country")] if x)}
+    return out
+
+
+def _workable(slug):
+    d = _json("https://apply.workable.com/api/v1/widget/accounts/%s?details=true" % slug)
+    out = {}
+    for j in d.get("jobs", []):
+        out[j.get("shortcode", "")] = {
+            "text": _detag(j.get("description")),
+            "title": j.get("title", ""),
+            "location": ", ".join(x for x in [j.get("city"), j.get("state"),
+                                              j.get("country")] if x)}
+    return out
+
+
+def _smartrecruiters(slug):
+    """Listing carries no body; each posting needs its own call."""
+    out = {}
+    listing = _json("https://api.smartrecruiters.com/v1/companies/%s/postings?limit=100" % slug)
+    for p in listing.get("content", []):
+        pid = str(p.get("id"))
+        try:
+            det = _json("https://api.smartrecruiters.com/v1/companies/%s/postings/%s" % (slug, pid))
+        except Exception:
+            continue
+        sec = (det.get("jobAd") or {}).get("sections") or {}
+        text = "\n\n".join(_detag((sec.get(k) or {}).get("text"))
+                           for k in ("jobDescription", "qualifications",
+                                     "additionalInformation", "companyDescription"))
+        loc = p.get("location") or {}
+        out[pid] = {"text": text.strip(), "title": p.get("name", ""),
+                    "location": ", ".join(x for x in [loc.get("city"), loc.get("region"),
+                                                      loc.get("country")] if x)}
+    return out
+
+
+def _recruitee(slug):
+    out = {}
+    for o in _json("https://%s.recruitee.com/api/offers/" % slug).get("offers", []):
+        text = "\n\n".join(_detag(o.get(k)) for k in ("description", "requirements", "highlight"))
+        key = o.get("slug") or str(o.get("id"))
+        locs = [l.get("name") for l in (o.get("locations") or []) if isinstance(l, dict)]
+        out[key] = {"text": text.strip(), "title": o.get("title") or o.get("sharing_title", ""),
+                    "location": ", ".join([o.get("location") or ""] + locs).strip(", ")}
+    return out
+
+
+EXTRA = {"lever": _lever, "workable": _workable,
+         "smartrecruiters": _smartrecruiters, "recruitee": _recruitee}
+
+
 def _board(platform, slug):
+    if platform in EXTRA:
+        return EXTRA[platform](slug)
     if platform == "greenhouse":
         u = "https://boards-api.greenhouse.io/v1/boards/%s/jobs?content=true" % slug
     else:

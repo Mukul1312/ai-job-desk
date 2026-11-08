@@ -1,6 +1,48 @@
 # remote-job-hunter
 
-Finds remote AI/agent and software roles that I can **actually be hired into** from Kanpur, India — then ranks them by fit, working-hours overlap, and salary in LPA.
+A personal career system. Four parts, each answering a different question.
+
+| | Question | Where |
+|---|---|---|
+| **Pipeline** | What roles exist that I can actually be hired into? | `src/` `config/` `profiles/` `web/` |
+| **Evidence** | What have I actually done, and can I prove it? | `facts/` `tools/facts.py` `tools/commit_digest.py` |
+| **Materials** | What do I send them? | `tools/resume_lint.py` `tools/resume_edit.py` |
+| **Action** | Did I apply, and what happened? | `tools/track.py` `extension/` |
+
+Plus `prep/` for interview concept cards, which are checked against the evidence base rather than written separately.
+
+**The order matters.** The pipeline was built first and works. The gap that kept costing roles was the last row: a Notion database once held 65 researched roles, zero applications, and both of its two best targets closed while they sat there. Hence `tools/track.py`, which defaults to telling you what to do rather than what you have collected.
+
+```bash
+./run.sh                                             # find today's roles
+python tools/track.py                                # what needs applying to
+python tools/facts.py --match-job jd.txt             # which bullets fit this posting
+python tools/casestudy.py --project ticket-to-lord   # the interview narrative
+```
+
+Everything validates, and the checks are the point:
+
+```bash
+python tools/facts.py --check                # every fact needs evidence
+python tools/prep.py  --check                # every concept card needs a real example
+python tools/resume_lint.py <resume.docx>    # before you send it
+```
+
+---
+
+## Where things are written down
+
+| You want | Read |
+|---|---|
+| what to do next | [`docs/SESSION-2026-11-08.md`](docs/SESSION-2026-11-08.md) — open items first |
+| why the repo is shaped this way | [`docs/DECISIONS.md`](docs/DECISIONS.md) |
+| the evidence schema | [`facts/README.md`](facts/README.md) |
+| the interview-prep method | [`prep/README.md`](prep/README.md) |
+| what a tool does, and why | its module docstring — `head -30 tools/<name>.py` |
+
+---
+
+## Finding the roles
 
 Most job scrapers answer *"does this JD match my skills?"*. That question is easy and mostly useless: a perfect match in San Francisco is a 0.5-hour overlap with my day and a company with no way to put me on payroll. This answers the three questions that actually decide it.
 
@@ -159,6 +201,34 @@ deploy must never cost you data the quota already paid for.
 Private and separate on purpose: these files record which roles you are looking
 at and which you have already seen. Nothing secret, but nobody else's business,
 and at ~400 KB a day it would bloat a public history fast.
+
+---
+
+## Career material backup
+
+`facts/`, `prep/`, `docs/`, `applications.json` and `config/skill_demand.json`
+are gitignored here, because **this remote is public**. They name colleagues,
+record whose work is whose, carry `_DO_NOT_CLAIM` and `know_before_claiming`
+notes, and hold self-rated skill levels. None of that is for publication.
+
+Gitignoring protects them and backs up nothing, so they mirror to a separate
+private repo the same way `data/` does:
+
+```bash
+python tools/backup_private.py            # mirror, commit, push
+python tools/backup_private.py --dry-run  # show what would change
+```
+
+One-way, always. The workspace is the source of truth and nothing is copied
+back, because a backup that can overwrite its source is a way to lose work.
+
+It refuses to run if the destination is not a repo GitHub reports as private,
+if the destination is this workspace's own origin, or if a sync would delete
+more than 20 files without `--force-delete` — that last one because "the source
+was accidentally emptied" and "the user meant it" look identical to a copy loop.
+
+Run it after a session that changes `facts/`. 83 facts took a full session to
+build and verify; they are the hardest thing here to reconstruct.
 
 ---
 

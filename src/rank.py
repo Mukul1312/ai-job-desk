@@ -100,6 +100,29 @@ def recommend_resume(job, variants):
     return best or ("ai" if "ai" in variants else next(iter(variants), None))
 
 
+def location_is_real(job):
+    """False when `location` is something we synthesised rather than observed.
+
+    RemoteRocketship supplies no geography, so src/search.py labels each result
+    with the region it was queried under. That label looks exactly like a real
+    location and used to be scored as one: a US-only role returned under the
+    UAE filter got a 9-hour Dubai overlap and ranked first, while its true
+    location fails the hard 4-hour filter outright. 68% of a typical run comes
+    from that source.
+
+    Where the location is inferred, ranking must not act on it at all - not to
+    drop, not to weight, not to bonus. A guess is not evidence, and a guess
+    that can silently delete a job is worse than no guess.
+    """
+    if job.get("location_inferred"):
+        return False
+    # Fall back to the source. The flag is set at fetch time, so snapshots in
+    # data/raw/ taken before it existed do not carry it, and --offline replays
+    # those. Deriving it from the source as well means the rule holds for
+    # history too, and keeps holding if a future fetch path forgets the flag.
+    return not str(job.get("source", "")).lower().startswith("remoterocketship")
+
+
 def rank_jobs(jobs, profile_config):
     """
     Returns (ranked_jobs, stats, unscored_relevant).
@@ -128,7 +151,10 @@ def rank_jobs(jobs, profile_config):
         # quietly delete the thing we added them for.
         if fit is None:
             stats["dropped_unscored"] += 1
-            tz_u = tzmod.assess(job.get("location", ""), tz_cfg)
+            # An inferred location is assessed as empty, which routes to the
+            # unrestricted path rather than to a fabricated country.
+            tz_u = tzmod.assess(
+                job.get("location", "") if location_is_real(job) else "", tz_cfg)
             if tz_u["passes"]:
                 job["tz"] = tz_u
                 job["resume"] = recommend_resume(job, variants)
@@ -136,9 +162,12 @@ def rank_jobs(jobs, profile_config):
                 unscored.append(job)
             continue
 
-        tz = tzmod.assess(job.get("location", ""), tz_cfg)
+        real_loc = location_is_real(job)
+        tz = tzmod.assess(job.get("location", "") if real_loc else "", tz_cfg)
         job["tz"] = tz
-        if not tz["passes"]:
+        # Only a location we actually observed may drop a job. Otherwise the
+        # filter is deciding on our own placeholder.
+        if not tz["passes"] and real_loc:
             stats["dropped_timezone"] += 1
             continue
 
@@ -157,7 +186,15 @@ def rank_jobs(jobs, profile_config):
             continue
 
         region = tz["region"]
-        w = float(weights.get(region, weights.get("unknown", 0.8)))
+        if real_loc:
+            w = float(weights.get(region, weights.get("unknown", 0.8)))
+        else:
+            # Neutral, deliberately not the 0.8 "unknown" weight. That weight
+            # is for a job whose location is genuinely unclear; this is a job
+            # whose location WE failed to capture, and penalising it 20% for
+            # our own gap would quietly bury two-thirds of the pipeline.
+            w = 1.0
+            stats["location_inferred"] = stats.get("location_inferred", 0) + 1
         india = job.get("india") or {"boost": 1.0, "confidence": "unknown",
                                      "evidence": []}
         boost = float(india.get("boost", 1.0))
@@ -179,7 +216,7 @@ def rank_jobs(jobs, profile_config):
         job["rank_reasons"] = [
             f"fit {fit}",
             f"{tier} x{tw}",
-            f"{region} x{w}",
+            f"{region} x{w}" + ("" if real_loc else " (location not supplied by source)"),
             f"india:{india.get('confidence')} x{boost}",
             f"overlap {'n/a' if oh is None else str(oh)+'h'} x{round(overlap_bonus,2)}",
         ]

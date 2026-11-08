@@ -236,6 +236,17 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
   /* Stable short key per job: the URL is long and not a safe column key, so
      hash it. Same input gives the same key across runs, which is what lets a
      note written three weeks ago still attach to today's listing. */
+  /* RemoteRocketship supplies no geography. src/search.py labels each result
+     with the region it was QUERIED under, which looks identical to a real
+     location. Showing it plainly invites exactly the mistake it caused: a
+     US-only role read as being in the UAE. Ranking already ignores it
+     (locationInferred); the label has to say so too. */
+  function locLabel(j){
+    if(!j.locationInferred)return j.location||"";
+    return j.location?"matched via "+j.location+" filter (true location unknown)"
+                     :"location not supplied";
+  }
+
   function keyOf(id){
     var h1=0x811c9dc5,h2=0x1000193,s=String(id||"");
     for(var i=0;i<s.length;i++){
@@ -451,7 +462,7 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
           '<span class="rank">'+(j.rank!=null?j.rank:"–")+"</span>"+
           '<span class="main"><span class="ttl">'+(j.isNew?'<span class="dot"></span>':"")+
             esc(j.title)+'</span><span class="sub">'+esc(j.company)+
-            (j.location?" · "+esc(j.location):"")+" · "+esc(j.source)+"</span></span>"+
+            (j.location?" · "+esc(locLabel(j)):"")+" · "+esc(j.source)+"</span></span>"+
           '<span class="metrics">'+
             (st!=="none"?'<span class="tag t-accent">'+esc(labelOf(st))+"</span>":"")+
             (j.tier&&j.tier!=="ai"?'<span class="tag t-ghost">'+esc(j.tier)+"</span>":"")+
@@ -473,7 +484,7 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
       ["Overlap",j.overlap!=null?j.overlap+" h a day"+(j.tzName?" · "+esc(j.tzName):""):"no restriction"],
       ["Salary",j.lpa!=null?j.lpaLow+"–"+j.lpaHigh+" LPA":"not stated"],
       ["Send resume",j.resume?esc(j.resume):"—"],
-      ["Location",esc(j.location)||"—"],
+      ["Location",esc(locLabel(j))||"—"],
       ["Posted",esc(j.posted)||"—"],
       ["First seen",(esc(j.firstSeen)||"—")+(j.isNew?" (new)":"")]
     ];

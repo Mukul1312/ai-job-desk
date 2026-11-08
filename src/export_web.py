@@ -20,6 +20,13 @@ import json, re, sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from rank import location_is_real as _loc_is_real
+except ImportError:  # standalone use
+    def _loc_is_real(job):
+        return not (job.get("location_inferred")
+                    or str(job.get("source", "")).lower().startswith("remoterocketship"))
+
 WORKSPACE = Path(__file__).parent.parent
 WEB_DIR = WORKSPACE / "web" / "public" / "data"
 SNIPPET_CHARS = 420
@@ -50,6 +57,14 @@ def _job_row(job, rank):
         "source": _clean(job.get("source"), 40),
         "url": job.get("url") or "",
         "location": _clean(job.get("location"), 90),
+        # True when `location` is the region we filtered on rather than a fact
+        # about the job. The page must not present it as a place.
+        #
+        # Uses rank.location_is_real rather than the raw flag so historical
+        # snapshots - taken before the flag existed - are judged by the same
+        # rule the ranking used. Two places deciding this differently is how
+        # the page ends up disagreeing with the score beside it.
+        "locationInferred": not _loc_is_real(job),
         "posted": _clean(job.get("posted"), 20),
         "score": job.get("final_score"),
         "fit": job.get("match_score"),
@@ -65,6 +80,13 @@ def _job_row(job, rank):
         "indiaWhy": [_clean(e, 90) for e in (india.get("evidence") or [])][:3],
         "resume": job.get("resume"),
         "tier": job.get("role_tier"),
+        # Where the application actually goes, as opposed to where the listing
+        # lives. "applyKind" is the system behind it (ashby, greenhouse, email,
+        # direct, unresolved); "applyVia" records how we worked that out, so a
+        # wrong answer can be traced back to the pass that produced it.
+        "applyUrl": job.get("apply_url") or "",
+        "applyKind": job.get("apply_kind") or "unresolved",
+        "applyVia": job.get("apply_via") or "",
         "isNew": bool(job.get("is_new")),
         "firstSeen": job.get("first_seen"),
         "stale": job.get("stale_from"),

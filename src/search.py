@@ -1412,9 +1412,18 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls,
             elif sr:
                 sal_text = safe_str(sr)
 
-            # The API returns no geography — it is a remote-only board — so the
-            # honest label is the region we asked it to filter on, not a
-            # pretend city. Timezone scoring treats this as unrestricted.
+            # The API returns no geography at all — it is a remote-only board.
+            # The region here is the filter WE queried, not where the job is,
+            # so it is kept for display and flagged as inferred.
+            #
+            # This block used to claim "timezone scoring treats this as
+            # unrestricted". It did not. A country name in `location` makes
+            # timezone.assess() read it as a real place, so a US-only role
+            # returned under the UAE filter was scored with a 9-hour Dubai
+            # overlap and ranked first - while its true location, "United
+            # States (Remote)", fails the 4-hour hard filter outright. The flag
+            # is what makes the original intent actually hold; see
+            # location_inferred in rank.py.
             location = region or "Worldwide (remote)"
 
             results.append({
@@ -1426,6 +1435,10 @@ def _rr_fetch_region(key, rr, region, min_usd, max_pages, seen_urls,
                 "salary_currency": sal_cur,
                 "url": safe_str(j.get("url", "")),
                 "location": location,
+                # True = `location` is the region we filtered on, not a fact
+                # about the job. Ranking must not drop or weight on it.
+                "location_inferred": True,
+                "matched_region": region or "",
                 "posted": safe_str(j.get("created_at", ""))[:10],
                 "tags": ", ".join((j.get("techStack") or [])[:6]),
                 "description": desc,

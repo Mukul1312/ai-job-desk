@@ -299,6 +299,13 @@ footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-si
   function initNotes(){
     return fetch("/api/notes",{cache:"no-store",headers:hdrs()}).then(function(r){
       if(r.status===401){setToken("");askForToken("Wrong or missing token.");return null}
+      /* 503 = a database is configured for this environment but NOTES_TOKEN is
+         not, so the API refuses rather than serving your notes unauthenticated.
+         Expected on preview deployments. Saying "add a Postgres store" here
+         would be wrong - there is one. */
+      if(r.status===503){remote=false;state.notes=lsRead();
+        $("dbstate").textContent="This deployment has no access token, so notes stay in this browser.";
+        return null}
       if(!r.ok)throw new Error(r.status);
       return r.json();
     }).then(function(r){

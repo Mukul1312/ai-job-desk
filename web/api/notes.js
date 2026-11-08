@@ -62,18 +62,38 @@ async function ensureTable(db) {
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
 
-  // Optional shared secret. A deployment URL is guessable, so set this if the
-  // link is ever shared; without it anyone with the URL can read and write.
-  if (TOKEN && req.headers['x-notes-token'] !== TOKEN) {
-    return res.status(401).json({ error: 'bad token' });
-  }
-
   const db = conn();
   if (!db) {
+    // Nothing to protect - no store is configured, so the page keeps notes in
+    // the browser. This is the only path allowed to answer without a token.
     return res.status(501).json({
       error: 'no_database',
       hint: 'Add a Postgres store in Vercel to sync notes. Until then the page keeps them in this browser only.',
     });
+  }
+
+  // Past this point a real database is reachable, so the endpoint fails CLOSED.
+  //
+  // It used to fail open. The check was `if (TOKEN && header !== TOKEN)`, which
+  // skips authentication entirely when NOTES_TOKEN is empty. That is only safe
+  // while "no token" and "no database" coincide, and on 2026-11-08 they did not:
+  // NOTES_TOKEN was set on the production target alone, while the Supabase
+  // integration supplies POSTGRES_URL to preview AND production. Every preview
+  // deployment was therefore an unauthenticated read AND write of the real
+  // job_notes table - an application history, on a guessable URL.
+  //
+  // Refusing costs a misconfigured environment nothing: initNotes() in
+  // index.html treats any non-OK response as "no sync" and falls back to
+  // localStorage, so the page still works, just locally.
+  if (!TOKEN) {
+    return res.status(503).json({
+      error: 'no_token',
+      hint: 'A Postgres URL is configured for this environment but NOTES_TOKEN is not, so this endpoint refuses to serve. Set NOTES_TOKEN on every target that has a database.',
+    });
+  }
+
+  if (req.headers['x-notes-token'] !== TOKEN) {
+    return res.status(401).json({ error: 'bad token' });
   }
 
   try {

@@ -81,19 +81,44 @@ def mkid(company, role):
 
 
 def find(db, needle):
+    """Substring match on the id or either url, so you can paste what you have.
+
+    apply_url is searched too because after clicking through to a form, the
+    apply url is what is in the address bar - and being unable to mark a role
+    applied with the url you are looking at is exactly the friction that keeps
+    the tracker empty.
+    """
     needle = needle.lower()
     hits = [a for a in db["applications"]
-            if needle in a["id"] or needle in (a.get("url") or "").lower()]
+            if needle in a["id"]
+            or needle in (a.get("url") or "").lower()
+            or needle in (a.get("apply_url") or "").lower()]
     return hits
 
 
-def add(db, *, company, role, url="", source="manual", fit="", notes="", status="interested"):
+def add(db, *, company, role, url="", apply_url="", source="manual", fit="",
+        notes="", status="interested"):
+    """
+    `url` is the LISTING url and is the join key to everything else.
+
+    The pipeline, the resolver cache and data/seen.json all key on the listing
+    url, and web/public/data/jobs-*.json uses it verbatim as a job's id. Storing
+    anything else here severs the tracker from all of them - which is exactly
+    what happened: this function used to be called with `applyUrl or url`, and
+    only 2 of 66 rows could be matched back to the pipeline as a result.
+
+    `apply_url` is where the form actually lives. Keep it, because it is what
+    you click - but never key on it. One listing can resolve to several apply
+    urls over its life (a board switches ATS, a redirect changes), while the
+    listing url is what both sides already agree on.
+    """
     aid = mkid(company, role)
     for a in db["applications"]:
         if a["id"] == aid:
             return a, False
     rec = {
         "id": aid, "company": company, "role": role, "url": url,
+        "apply_url": apply_url,
         "source": source, "fit": fit, "status": status,
         "added": _today(), "status_changed": _today(),
         "applied_on": None, "notes": notes, "history": [f"{_today()} added as {status}"],
@@ -243,7 +268,8 @@ def cmd_from_report(db, n):
     added = 0
     for j in jobs:
         _, is_new = add(db, company=j.get("company", "?"), role=j.get("title", "?"),
-                        url=j.get("applyUrl") or j.get("url", ""),
+                        url=j.get("url", ""),
+                        apply_url=j.get("applyUrl", ""),
                         source=f"pipeline {web[0].stem[-10:]}",
                         fit=f"score {j.get('score')}",
                         notes=f"{j.get('location','')} · resume: {j.get('resume','')} · via {j.get('applyKind','?')}")

@@ -29,6 +29,14 @@ SKIPPED_FILE = WORKSPACE / "skipped_jobs.json"
 
 # ─── ATS Detection ────────────────────────────────────────────────────────────
 
+# Tiers this module can actually drive. resolve.py names many more systems
+# than we have handlers for (jazzhr, jobvite, personio, keka...); anything not
+# in here falls through to the generic form filler, which is the honest
+# behaviour — better a generic attempt than pretending we support it.
+APPLY_TIERS = {"email", "linkedin", "greenhouse", "lever", "workday", "ashby",
+               "bamboohr", "jobvite", "form"}
+
+
 def detect_apply_tier(url):
     """Detect which apply tier to use based on URL."""
     if not url:
@@ -56,35 +64,81 @@ def detect_apply_tier(url):
 # ─── Cover Letter Generator ───────────────────────────────────────────────────
 
 def generate_cover_letter(job, profile):
-    """Generate a tailored cover letter for the job."""
-    name = profile.get("name", "")
-    email = profile.get("email", "")
-    phone = profile.get("phone", "")
-    skills = ", ".join(profile.get("skills", [])[:8])
-    years_exp = profile.get("years_experience", "13+")
-    current_role = profile.get("current_role", "AI/ML Solutions Architect")
-    linkedin = profile.get("linkedin", "")
+    """
+    Build the body of an application email.
 
-    title = job.get("title", "the role")
-    company = job.get("company", "your company")
-    match_score = job.get("match_score", 0)
-    job_tags = job.get("tags", "")
+    Deliberately plain and short. Hiring teams reading a "Who is hiring" reply
+    are skimming for whether you have done the work, so this carries concrete
+    lines with numbers in them and nothing else.
 
-    return f"""Dear Hiring Team at {company},
+    Three things it will never do:
 
-I am writing to express my interest in the {title} position. With {years_exp} years of experience as a {current_role}, I bring a strong foundation in {skills}.
+      * open with "I am writing to express my interest" — the single most
+        recognisable generated-application tell;
+      * describe the candidate with adjectives, which carry no information
+        when every other application has them too;
+      * print the match score. That is this tool's own ranking signal. Showing
+        a hiring manager that an algorithm rated them 72% is actively harmful.
 
-Your role aligns well with my background — my profile matches {match_score}% of the required skills for this position. I have hands-on experience with the technologies your team is working with, including {job_tags[:100] if job_tags else skills}.
+    Every line comes from profile["pitch"]. Nothing is inferred and nothing has
+    a stand-in default, because a default here is a false claim about a real
+    person's career: the old version of this function fell back to "13+ years"
+    and "AI/ML Solutions Architect" for anyone who had not set them.
 
-I am currently seeking remote/WFA opportunities where I can contribute to impactful AI/ML initiatives while working across time zones. I am comfortable with async collaboration and have delivered results in distributed team environments.
+    Returns None when the profile has no pitch configured, so the caller can
+    decline to send rather than post a letter with holes in it.
+    """
+    pitch = profile.get("pitch") or {}
+    name = (profile.get("name") or "").strip()
+    if not pitch or not name:
+        return None
 
-I would welcome the opportunity to discuss how my experience aligns with your team's goals.
+    opening = (pitch.get("opening") or "").strip()
+    close = (pitch.get("close") or "").strip()
+    if not opening:
+        return None
 
-Best regards,
-{name}
-{email} | {phone}
-{linkedin}
-"""
+    # Pick the evidence that fits the role. The pipeline already decided which
+    # resume variant suits this job; reuse that rather than guessing again.
+    proof_sets = pitch.get("proof") or {}
+    variant = job.get("resume") or job.get("role_tier") or "default"
+    if isinstance(proof_sets, dict):
+        proof = proof_sets.get(variant) or proof_sets.get("default") or []
+    else:
+        proof = proof_sets                      # a plain list is fine too
+    proof = [str(p).strip() for p in proof if str(p).strip()][:3]
+
+    company = (job.get("company") or "").strip()
+    title = (job.get("title") or "").strip()
+
+    # HN and small-startup posts rarely name a person, so no invented "Dear X".
+    greeting = f"Hi {company} team," if company and company.lower() not in (
+        "see post", "unknown", "") else "Hi,"
+
+    lines = [greeting, ""]
+    if title:
+        lines.append(f"Applying for {title}.")
+        lines.append("")
+    lines.append(opening)
+    if proof:
+        lines.append("")
+        lines.extend(f"- {p}" for p in proof)
+    if close:
+        lines.append("")
+        lines.append(close)
+
+    contact = " | ".join(p for p in (
+        profile.get("email"), profile.get("phone")) if p)
+    links = " | ".join(p for p in (
+        profile.get("linkedin"), profile.get("github")) if p)
+
+    lines += ["", name]
+    if contact:
+        lines.append(contact)
+    if links:
+        lines.append(links)
+
+    return "\n".join(lines) + "\n"
 
 
 # ─── Tier 1: Email Apply ──────────────────────────────────────────────────────
@@ -110,6 +164,13 @@ def apply_email(job, profile):
     subject = subject_match.group(1).replace('+', ' ') if subject_match else f"Application for {job.get('title', 'Position')}"
 
     cover_letter = generate_cover_letter(job, profile)
+    if not cover_letter:
+        # No pitch configured. Sending a half-built letter to a real hiring
+        # inbox is worse than not applying, and it cannot be taken back.
+        return {"status": "skipped",
+                "reason": "No profile['pitch'] configured — refusing to send a "
+                          "generic letter. See config/profile.template.json."}
+
     resume_path = profile.get("resume_path", "")
 
     try:
@@ -154,6 +215,9 @@ def apply_form(page, job, profile):
     phone = profile.get("phone", "")
     resume_path = profile.get("resume_path", "")
     linkedin = profile.get("linkedin", "")
+    # May be None when no pitch is configured. A form's cover-letter box is
+    # optional, so skip that one field rather than abandoning the application —
+    # unlike the email tier, where the letter *is* the application.
     cover_letter = generate_cover_letter(job, profile)
 
     filled = []
@@ -195,10 +259,11 @@ def apply_form(page, job, profile):
     try_fill(['input[name*="linkedin" i]', 'input[id*="linkedin" i]',
               'input[placeholder*="linkedin" i]'], linkedin)
 
-    # Cover letter / message
-    try_fill(['textarea[name*="cover" i]', 'textarea[id*="cover" i]',
-              'textarea[name*="message" i]', 'textarea[id*="message" i]',
-              'textarea[placeholder*="cover" i]'], cover_letter)
+    # Cover letter / message — only when there is one to write.
+    if cover_letter:
+        try_fill(['textarea[name*="cover" i]', 'textarea[id*="cover" i]',
+                  'textarea[name*="message" i]', 'textarea[id*="message" i]',
+                  'textarea[placeholder*="cover" i]'], cover_letter)
 
     # Resume upload
     if resume_path and Path(resume_path).exists():
@@ -438,15 +503,30 @@ def apply_workday(page, job, profile):
 
 def apply_to_job(job, profile, dry_run=False):
     """Apply to a single job using the appropriate tier."""
-    url = job.get("url", "")
-    tier = detect_apply_tier(url)
+    # Prefer the destination resolve.py worked out. job["url"] is where the
+    # listing lives — an HN comment, a GetHired row — not where the application
+    # goes. Reading it directly is why the greenhouse/lever/ashby handlers below
+    # never fired: every job classified as a generic "form".
+    url = job.get("apply_url") or job.get("url", "")
+    listing_url = job.get("url", "")
+
+    # resolve.py already named the system where it could; trust that over
+    # re-deriving it, and fall back to the URL sniff when it could not.
+    kind = job.get("apply_kind")
+    tier = kind if kind in APPLY_TIERS else detect_apply_tier(url)
+
     title = job.get("title", "Unknown")
     company = job.get("company", "Unknown")
 
-    print(f"  → {title} at {company} [{tier}]")
+    via = job.get("apply_via")
+    # Plain ASCII: the Windows console defaults to cp1252 and raises
+    # UnicodeEncodeError on an arrow, which would abort a run mid-apply.
+    print(f"  -> {title} at {company} [{tier}"
+          f"{' via ' + via if via else ''}]")
 
     if dry_run:
-        return {"status": "dry_run", "tier": tier, "url": url}
+        return {"status": "dry_run", "tier": tier, "url": url,
+                "listing_url": listing_url}
 
     # Tier 1: Email — no browser needed
     if tier == "email":

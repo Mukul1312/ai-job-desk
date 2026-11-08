@@ -20,6 +20,19 @@
     "hybrid",
     "must be located"
   ],
+  "pitch": {
+    "_comment": "Body of an application email. Required before apply_email will send anything — without it the email tier skips the job rather than posting a generic letter to a real hiring inbox.",
+    "_rules": "Concrete beats flattering. Give lines with numbers in them, no adjectives about yourself, no 'I am writing to express my interest', and never a match score.",
+    "opening": "One sentence on who you are and the most relevant thing you have shipped.",
+    "proof": {
+      "_comment": "Keyed by resume variant so the evidence matches the role; 'default' is used when no variant fits.",
+      "default": [
+        "A thing you built, with the number that shows it worked.",
+        "A second one. Two is plenty."
+      ]
+    },
+    "close": "Happy to go deeper on any of these. Resume attached."
+  },
   "dry_run": true,
   "auto_apply_threshold": 80,
   "max_daily_applications": 15,

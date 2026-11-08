@@ -139,6 +139,31 @@ def replace_bullet(xml, needle, new_text):
     return xml.replace(old, build_paragraph(old, new_text), 1), None
 
 
+def add_bullet(xml, needle, new_text):
+    """
+    Insert a new bullet directly after the one matching `needle`.
+
+    The tool could previously only replace, which meant adding a point cost an
+    existing one. That is the wrong trade when a posting asks for something the
+    resume genuinely covers and simply never mentioned - on a clinical-AI role
+    asking for PII/PHI safeguards, the privacy work existed in facts/ and on no
+    page, and dropping a good bullet to make room would have been a net loss.
+
+    The new paragraph inherits the matched one's styling, so it is indented and
+    weighted like a sibling rather than looking pasted in.
+
+    Returns (xml, None) or (xml, reason).
+    """
+    paras = [m.group(0) for m in PARA_RE.finditer(xml)]
+    hits = [p for p in paras if needle.lower() in _text_of(p).lower()]
+    if len(hits) != 1:
+        return xml, (f"{len(hits)} paragraphs matched" if hits
+                     else "no paragraph matched")
+    anchor_para = hits[0]
+    made = build_paragraph(anchor_para, new_text)
+    return xml.replace(anchor_para, anchor_para + made, 1), None
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
@@ -160,9 +185,11 @@ def main(argv):
 
     needle = (argv[argv.index("--replace-bullet") + 1]
               if "--replace-bullet" in argv else None)
+    after = (argv[argv.index("--add-bullet-after") + 1]
+             if "--add-bullet-after" in argv else None)
 
-    if not needle and not heading:
-        print("--section or --replace-bullet is required")
+    if not needle and not heading and not after:
+        print("--section, --replace-bullet or --add-bullet-after is required")
         return 2
     if not show and new_text is None:
         print("--set / --set-file or --show is required")
@@ -171,6 +198,29 @@ def main(argv):
     with zipfile.ZipFile(path) as z:
         parts = {n: z.read(n) for n in z.namelist()}
     xml = parts["word/document.xml"].decode("utf-8")
+
+    if after:
+        try:
+            with open(path, "r+b"):
+                pass
+        except PermissionError:
+            print(f"LOCKED: {path.name} is open in Word. Close it and re-run.")
+            return 1
+        xml, err = add_bullet(xml, after, new_text)
+        if err:
+            print(f"Could not add: {err} for {after!r}")
+            return 1
+        parts["word/document.xml"] = xml.encode("utf-8")
+        tmp = path.with_suffix(".docx.tmp")
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+            for name, blob in parts.items():
+                z.writestr(name, blob)
+        shutil.move(str(tmp), str(path))
+        print("Added after %r:" % after)
+        print("  " + new_text.replace("**", "")[:300])
+        print()
+        print(f"Written to {path.name}")
+        return 0
 
     if needle:
         try:

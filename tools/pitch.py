@@ -294,7 +294,8 @@ def main():
             d = WORKSPACE / "applications" / slug
         d.mkdir(parents=True, exist_ok=True)
         (d / "pitch.md").write_text(text, encoding="utf-8")
-        print(f"\nwritten to applications/{slug}/pitch.md")
+        print()
+        print("written to " + str(d / "pitch.md"))
     return 0
 
 

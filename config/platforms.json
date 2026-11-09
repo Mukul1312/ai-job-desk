@@ -145,11 +145,12 @@
     "enabled": true,
     "type": "api",
     "base_url": "https://www.remoterocketship.com/api/openclaw/jobs",
-    "max_pages": 2,
+    "max_pages": 10,
     "requires_env": "REMOTEROCKETSHIP_API_KEY",
     "note": "Paid subscription API. Queried once per region in profiles/*.remoterocketship.locationFilters, since the response carries no geography. Budget: regions x max_pages x 50 jobs against a 3000-job / 500-request daily cap.",
     "cache_hours": 20,
     "_cache_note": "Paid + capped at 3000 jobs/500 requests per UTC day. Snapshots are reused for cache_hours so re-running inside a day costs nothing, and cache_same_utc_day stops that reuse spilling past the 00:00 UTC reset — otherwise an evening snapshot suppresses the next morning's fetch. Set cache_hours to 0 to force a live fetch.",
-    "cache_same_utc_day": true
+    "cache_same_utc_day": true,
+    "_pages_note": "A ceiling, not a spend. _rr_region_size buys each country's totalCount for one job before paging, so a country is asked for exactly the pages it has: Singapore 1, India 8. Before the probe existed this was a fixed 2 pages everywhere, which both overbought small pools and cut large ones off at 26%. Full depth across the current 4 countries is ~1,078 jobs against a 3,000/day cap."
   }
 }

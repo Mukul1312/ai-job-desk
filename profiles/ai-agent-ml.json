@@ -120,7 +120,10 @@
       "India",
       "United Kingdom",
       "Germany",
-      "Singapore"
+      "Singapore",
+      "Poland",
+      "Spain",
+      "Portugal"
     ],
     "_locations_note": "One billed request per region, and a multi-region role is billed once per region it matches. Adding neighbours (Netherlands, Ireland, France, Spain, Portugal, Poland, Sweden) mostly re-bills the same EU-wide listings that Germany already returns. Add one only if a run shows real roles being missed.",
     "_filters_note": "Values must appear in config/rr_enums.json. An unknown locationFilters value is dropped by the API and the query returns the UNFILTERED feed at full price — see docs/RR-API-STUDY.md."

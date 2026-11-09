@@ -194,6 +194,52 @@ EXTRA = {"lever": _lever, "workable": _workable,
          "smartrecruiters": _smartrecruiters, "recruitee": _recruitee}
 
 
+def jsonld(url):
+    """Read a posting out of schema.org JobPosting markup on any job page.
+
+    Google Jobs indexing requires this markup, so most ATSs emit it whether or
+    not they publish an API. One function covers the platforms with no usable
+    endpoint - measured: workday 9,053 chars, jazzhr 22,094, teamtailor 7,115,
+    breezy 6,145, personio 4,435, join.com 2,202 - plus a third of the one-off
+    company career sites.
+
+    Returns None rather than a guess. BambooHR and Zoho render client-side and
+    emit nothing; those stay uncovered.
+    """
+    try:
+        req = urllib.request.Request(url, headers=UA)
+        page = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "replace")
+    except Exception:
+        return None
+    best = None
+    for m in re.finditer(r"<script[^>]+application/ld\+json[^>]*>(.*?)</script>",
+                         page, re.S | re.I):
+        try:
+            d = json.loads(m.group(1).strip())
+        except Exception:
+            continue
+        for o in (d if isinstance(d, list) else [d]):
+            if not isinstance(o, dict):
+                continue
+            if o.get("@type") != "JobPosting" and "description" not in o:
+                continue
+            text = _detag(str(o.get("description") or ""))
+            if len(text) < 400:
+                continue
+            loc = o.get("jobLocation") or {}
+            if isinstance(loc, list):
+                loc = loc[0] if loc else {}
+            addr = (loc or {}).get("address") or {}
+            where = ", ".join(str(addr.get(k)) for k in
+                              ("addressLocality", "addressRegion", "addressCountry")
+                              if addr.get(k))
+            if o.get("jobLocationType") == "TELECOMMUTE":
+                where = (where + ", Remote").strip(", ")
+            if best is None or len(text) > len(best["text"]):
+                best = {"text": text, "title": o.get("title", ""), "location": where}
+    return best
+
+
 def _board(platform, slug):
     if platform in EXTRA:
         return EXTRA[platform](slug)
@@ -261,6 +307,56 @@ def cmd_fetch():
                 index[k] = dict(targets[k], title=hit["title"],
                                 location=hit["location"], chars=len(hit["text"]))
                 got += 1
+
+    # Pass 2 - text already on disk. Only RemoteRocketship rewrites its
+    # descriptions; HN hiring comments, Remotive, RemoteOK and WorkingNomads
+    # carry the employer's own prose. Reading it costs nothing and no fetch.
+    covered = {targets[k]["url"] for k in index}
+    feed = 0
+    for r in rows:
+        u = r.get("url") or ""
+        src = (r.get("source") or "").split("[")[0].strip()
+        d = r.get("description") or ""
+        if not u or u in covered or src == "RemoteRocketship" or len(d) < 600:
+            continue
+        key = "feed-" + re.sub(r"[^a-z0-9]+", "", (r.get("company") or "x").lower())[:18] \
+              + "-" + str(abs(hash(u)) % 10 ** 9)
+        (TEXT_DIR / (key + ".txt")).write_text(d, encoding="utf-8", newline="\n")
+        index[key] = {"platform": "feed:" + src.lower(), "slug": src.lower(),
+                      "job_id": "", "url": u, "title": r.get("title", ""),
+                      "location": r.get("location", ""),
+                      "feed_company": r.get("company", ""),
+                      "feed_title": r.get("title", ""), "chars": len(d)}
+        covered.add(u)
+        feed += 1
+    print("  feed rows carrying real prose: %d (no fetch needed)" % feed)
+
+    # Pass 3 - schema.org markup for everything still uncovered.
+    rest = [r for r in rows if (r.get("url") or "") and r["url"] not in covered
+            and not (r.get("url") or "").startswith("https://news.ycombinator.com")]
+    print("  trying schema.org JobPosting on %d remaining pages..." % len(rest))
+
+    def jl(r):
+        return r, jsonld(r.get("applyUrl") or r.get("url"))
+
+    ld = 0
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        for r, hit in pool.map(jl, rest):
+            if not hit:
+                continue
+            u = r["url"]
+            key = "ld-" + re.sub(r"[^a-z0-9]+", "", (r.get("company") or "x").lower())[:18] \
+                  + "-" + str(abs(hash(u)) % 10 ** 9)
+            (TEXT_DIR / (key + ".txt")).write_text(hit["text"], encoding="utf-8", newline="\n")
+            index[key] = {"platform": "jsonld", "slug": urllib.parse.urlparse(u).netloc,
+                          "job_id": "", "url": u,
+                          "title": hit["title"] or r.get("title", ""),
+                          "location": hit["location"] or r.get("location", ""),
+                          "feed_company": r.get("company", ""),
+                          "feed_title": r.get("title", ""), "chars": len(hit["text"])}
+            ld += 1
+    print("  schema.org yielded text for %d of %d (%d%%)"
+          % (ld, len(rest), 100 * ld // max(len(rest), 1)))
 
     INDEX.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n",
                      encoding="utf-8", newline="\n")

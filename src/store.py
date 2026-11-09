@@ -134,12 +134,19 @@ def load_source(source, date_str=None):
         return None
 
 
-def load_fresh(source, max_age_hours):
+def load_fresh(source, max_age_hours, same_utc_day=False):
     """
     Most recent snapshot for `source` newer than max_age_hours, else None.
 
     max_age_hours <= 0 disables reuse, which is what free sources want:
     re-fetching them costs nothing and keeps results current.
+
+    same_utc_day additionally refuses a snapshot taken on an earlier UTC day.
+    A rolling window and a daily quota do not line up: RemoteRocketship's cap
+    resets at 00:00 UTC, so a 20-hour cache taken at 16:18 keeps serving
+    yesterday until 12:18 today — through a reset that already made fresh
+    data affordable. The cache exists to stop re-buying inside a billing day,
+    not to skip the next one.
     """
     if not max_age_hours or max_age_hours <= 0:
         return None
@@ -159,6 +166,8 @@ def load_fresh(source, max_age_hours):
                 ts = ts.replace(tzinfo=timezone.utc)
         except Exception:
             continue
+        if same_utc_day and day.name != _today():
+            return None          # newest snapshot predates the quota reset
         if ts >= cutoff:
             # Belt and braces: an empty snapshot from an older version of this
             # file must never stand in for a live fetch.

@@ -149,6 +149,7 @@
     "requires_env": "REMOTEROCKETSHIP_API_KEY",
     "note": "Paid subscription API. Queried once per region in profiles/*.remoterocketship.locationFilters, since the response carries no geography. Budget: regions x max_pages x 50 jobs against a 3000-job / 500-request daily cap.",
     "cache_hours": 20,
-    "_cache_note": "Paid + capped at 3000 jobs/500 requests per UTC day. Snapshots are reused for 20h so re-running the pipeline costs nothing. Set to 0 to force a live fetch."
+    "_cache_note": "Paid + capped at 3000 jobs/500 requests per UTC day. Snapshots are reused for cache_hours so re-running inside a day costs nothing, and cache_same_utc_day stops that reuse spilling past the 00:00 UTC reset — otherwise an evening snapshot suppresses the next morning's fetch. Set cache_hours to 0 to force a live fetch.",
+    "cache_same_utc_day": true
   }
 }

@@ -1355,7 +1355,8 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
             # number of pages and discover the end of a small one by paying
             # for an empty page.
             pages = max_pages
-            total, left = _rr_region_size(key, rr, region, min_usd, req_sink=reqs)
+            total, left = _rr_region_size(key, rr, region, min_usd,
+                                          req_sink=reqs, raw_sink=raw_records)
             if isinstance(total, int):
                 have = -(-total // 50)                  # ceil
                 pages = max(1, min(max_pages, have))
@@ -1396,7 +1397,9 @@ def fetch_remoterocketship(phrases, profile_config, profile_meta, max_pages=4):
     if raw_records:
         try:
             import store
-            p = store.save_raw("remoterocketship", raw_records)
+            # merge, not save: a probe or top-up may already have archived
+            # rows today, and save_raw overwrites the whole day.
+            p, _added = store.merge_raw("remoterocketship", raw_records)
             if p:
                 kb = p.stat().st_size // 1024
                 print(f"  RemoteRocketship: archived raw response ({kb} KB gz)")
@@ -1440,7 +1443,7 @@ def _rr_location_from_slug(slug, role_title):
     return place.replace("-", " ").title()
 
 
-def _rr_region_size(key, rr, region, min_usd, req_sink=None):
+def _rr_region_size(key, rr, region, min_usd, req_sink=None, raw_sink=None):
     """
     How many jobs match this region, for the price of one.
 
@@ -1449,6 +1452,9 @@ def _rr_region_size(key, rr, region, min_usd, req_sink=None):
     result set for a single job. That turns page budgeting from a guess into
     arithmetic: Singapore holds 80 jobs and should never be asked for page 3,
     India holds 584 and was being cut off at 100.
+
+    The probe is billed for the job it returns whether or not we keep it, so
+    the row goes into raw_sink. Dropping it would be pure loss.
 
     Returns (total, jobs_left) — jobs_left from the API's own header, or
     (None, None) if the probe failed. A failed probe must not block the fetch.
@@ -1476,6 +1482,8 @@ def _rr_region_size(key, rr, region, min_usd, req_sink=None):
         with urllib.request.urlopen(req, timeout=30) as r:
             _rr_note_quota(r.headers)
             data = json.loads(r.read().decode())
+        if raw_sink is not None:
+            raw_sink.extend(data.get("jobOpenings") or [])
         return data.get("totalCount"), RR_QUOTA.get("jobs_left")
     except urllib.error.HTTPError as e:
         if e.code in (401, 403, 429):
@@ -1719,7 +1727,8 @@ def fetch_all(domain, phrases, profile_config, profile_meta=None, offline=False)
     def sourced(name, fn):
         """Serve from a fresh snapshot when allowed, else fetch and save."""
         cfg = platforms.get(name, {})
-        blob = store.load_fresh(name, cfg.get("cache_hours", 0))
+        blob = store.load_fresh(name, cfg.get("cache_hours", 0),
+                                same_utc_day=bool(cfg.get("cache_same_utc_day")))
         if blob is not None:
             age = blob.get("fetched_at", "")[:16].replace("T", " ")
             print(f"  {name}: {blob.get('count', 0)} jobs from snapshot ({age})")

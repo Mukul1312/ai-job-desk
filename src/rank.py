@@ -32,6 +32,7 @@ everything is visible rather than mysterious.
 import re
 
 import jdextract
+import jdfacts
 import sys
 from pathlib import Path
 
@@ -58,54 +59,21 @@ RESUME_RULES = [
 ]
 
 
-def jd_drop(jd, profile_config, board=None):
-    """Should this posting be removed, and why — on what it says about itself.
+def jd_drop(jd, profile_config, board=None, job=None, regex_out=None):
+    """Should this posting be removed, and why — delegated to jdfacts.
 
-    These are DROPS, not weights, and that distinction is the whole point. The
-    India boost promoted a job on an inference about its employer; a drop
-    removes only what the posting itself rules out, and carries the sentence
-    that did it. `docs/RANKING-EVIDENCE.md` has 24 observations of the first
-    approach inverting the ranking.
+    The policy lives in `src/jdfacts.py`: which source may answer each field,
+    what verification a drop requires, and the measurement behind each choice.
+    This function only wires a job into it, so there is one place to change
+    the design rather than two.
 
-    Returns (reason, quote) or (None, None). **Silence is never a reason.**
-    Absent extraction, absent field and "unstated" all mean keep: 160 of 1,124
-    jobs have no extraction at all, and none of them is disqualified by that.
-
-    The asymmetry runs one way on purpose. A wrongly dropped job disappears
-    before anyone sees it; a wrongly kept one costs a few seconds of reading.
-    So every threshold here is set loose, and `experience_negotiable`
-    overrides the years rule outright — 13 postings say years are not the
-    barrier, in 13 different phrasings, and dropping those would remove the
-    most reachable roles in the set.
+    Returns (reason, quote). Silence is never a reason.
     """
-    # Board evidence first: it outranks the posting, because a posting that
-    # says nothing about location is not evidence, and 72 postings with no
-    # Indian role among them is. Sword Health ranked FIRST on pure fit after
-    # the boost came out - highest fit of nineteen, and unreachable - because
-    # its posting is silent and only its board says so.
-    if board and board.get("verdict") == "no_india":
-        return ("employer has no India roles",
-                "%s: %d open postings on their own board, %d engineering, "
-                "none India-scoped" % (board.get("company", "?"),
-                                       board.get("open", 0), board.get("eng", 0)))
-
-    if not jd:
-        return None, None
-
-    if jd.get("india_status") == "explicit_no":
-        return "india_excluded", jd.get("india_quote")
-
-    years = float((profile_config.get("years_experience") or 0))
-    tol = profile_config.get("experience_tolerance_years", 4)
-    floor = jd.get("experience_floor_years")
-    if (floor is not None and years and floor > years + tol
-            and not jd.get("experience_negotiable")):
-        return f"wants {floor}+ years", jd.get("experience_quote")
-
-    if jd.get("seniority") in {"intern", "manager"}:
-        return f"role is {jd['seniority']}", jd.get("seniority_quote")
-
-    return None, None
+    job = job or {}
+    level = jdfacts.verification(job, jd, board)
+    facts = jdfacts.resolve(job, jd, board, regex_out)
+    why, quote, _src = jdfacts.decide(facts, profile_config, level)
+    return why, quote
 
 
 def role_tier(job, cfg):
@@ -254,6 +222,7 @@ def rank_jobs(jobs, profile_config):
     stats = {"total": len(jobs), "dropped_timezone": 0,
              "dropped_salary": 0, "dropped_unscored": 0,
              "dropped_by_posting": 0, "by_drop_reason": {}, "jd_coverage": 0,
+             "by_verification": {},
              "by_region": {}, "by_india": {}}
 
     for job in jobs:
@@ -261,18 +230,25 @@ def rank_jobs(jobs, profile_config):
         # page. Checked first: no amount of fit makes a role you cannot take
         # worth ranking, and this is the only filter that carries a quotation.
         jd = extracted.get(job.get("url") or "")
-        board = verdicts.get(jdextract.company_key(job.get("company")))
+        board = verdicts.get(jdfacts.company_key(job.get("company")))
+        level = jdfacts.verification(job, jd, board)
+        job["jd_verification"] = level
+        stats["by_verification"][level] = (
+            stats["by_verification"].get(level, 0) + 1)
         if jd:
             stats["jd_coverage"] += 1
             job["jd"] = jd
         if jd or board:
-            why, quote = jd_drop(jd, profile_config, board)
+            facts = jdfacts.resolve(job, jd, board)
+            job["jd_facts"] = facts
+            why, quote, src = jdfacts.decide(facts, profile_config, level)
             if why:
                 stats["dropped_by_posting"] += 1
                 stats["by_drop_reason"][why] = (
                     stats["by_drop_reason"].get(why, 0) + 1)
                 job["dropped_because"] = why
                 job["dropped_quote"] = quote
+                job["dropped_source"] = src
                 continue
 
         fit = job.get("match_score")
@@ -387,6 +363,11 @@ def format_stats(stats):
         for why, n in sorted(stats.get("by_drop_reason", {}).items(),
                              key=lambda x: -x[1])[:6]:
             lines.append(f"        {n:>4}  {why}")
+    if stats.get("by_verification"):
+        order = {k: i for i, k in enumerate(jdfacts.VERIFICATION)}
+        v = ", ".join(f"{k} {n}" for k, n in sorted(
+            stats["by_verification"].items(), key=lambda x: -order.get(x[0], 0)))
+        lines.append(f"    posting verification: {v}")
     if stats["by_region"]:
         reg = ", ".join(f"{k} {v}" for k, v in
                         sorted(stats["by_region"].items(), key=lambda x: -x[1]))

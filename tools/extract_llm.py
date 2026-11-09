@@ -27,6 +27,7 @@ them at 100% coverage, and on employment type the feed scores 89% against layer
 See `docs/LLM-EXTRACTION-DESIGN.md` section 6b.
 """
 
+import hashlib
 import html
 import json
 import os
@@ -121,6 +122,21 @@ def _detag(raw):
     t = html.unescape(t)
     t = re.sub(r"[ \t]{2,}", " ", t)
     return "\n".join(l.strip() for l in re.sub(r"\n{3,}", "\n\n", t).split("\n")).strip()
+
+
+def _urlkey(url):
+    """A cache key that survives a restart.
+
+    This used `abs(hash(url)) % 10**9`. Python randomises string hashing per
+    process, so every --fetch renamed all 705 feed/schema.org entries and
+    orphaned their cached extractions - measured as ZERO overlap between the
+    cache and a freshly written index. Each run would silently re-pay ~$0.43
+    to re-extract postings already sitting on disk.
+
+    Exactly the failure store.save_raw and resolve.py's cache bug were written
+    about, reintroduced here by reaching for the builtin.
+    """
+    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
 
 
 def _json(url):
@@ -320,7 +336,7 @@ def cmd_fetch():
         if not u or u in covered or src == "RemoteRocketship" or len(d) < 600:
             continue
         key = "feed-" + re.sub(r"[^a-z0-9]+", "", (r.get("company") or "x").lower())[:18] \
-              + "-" + str(abs(hash(u)) % 10 ** 9)
+              + "-" + _urlkey(u)
         (TEXT_DIR / (key + ".txt")).write_text(d, encoding="utf-8", newline="\n")
         index[key] = {"platform": "feed:" + src.lower(), "slug": src.lower(),
                       "job_id": "", "url": u, "title": r.get("title", ""),
@@ -346,7 +362,7 @@ def cmd_fetch():
                 continue
             u = r["url"]
             key = "ld-" + re.sub(r"[^a-z0-9]+", "", (r.get("company") or "x").lower())[:18] \
-                  + "-" + str(abs(hash(u)) % 10 ** 9)
+                  + "-" + _urlkey(u)
             (TEXT_DIR / (key + ".txt")).write_text(hit["text"], encoding="utf-8", newline="\n")
             index[key] = {"platform": "jsonld", "slug": urllib.parse.urlparse(u).netloc,
                           "job_id": "", "url": u,

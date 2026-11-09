@@ -163,35 +163,94 @@ def _lever(slug):
 
 
 def _workable(slug):
+    """Workable repeats a shortcode once per country, so locations must MERGE.
+
+    Action1's "Applied AI Engineer - Operations" comes back five times under
+    shortcode 3C909CF39D - Spain, Portugal, Poland, Hungary, Czechia - as five
+    rows of one job. Keying `out[shortcode] = ...` overwrote four of them and
+    kept whichever arrived last, which was Czechia: an arbitrary one of five,
+    presented as though it were the location.
+
+    The role ranked 10th with a fit of 84 and is not open to India. Every
+    country was in the response; the dict threw four away.
+    """
     d = _json("https://apply.workable.com/api/v1/widget/accounts/%s?details=true" % slug)
     out = {}
     for j in d.get("jobs", []):
-        out[j.get("shortcode", "")] = {
-            "text": _detag(j.get("description")),
-            "title": j.get("title", ""),
-            "location": ", ".join(x for x in [j.get("city"), j.get("state"),
-                                              j.get("country")] if x)}
+        code = j.get("shortcode", "")
+        here = [x for x in [j.get("city"), j.get("state"), j.get("country")] if x]
+        for L in (j.get("locations") or []):
+            if isinstance(L, dict):
+                here += [x for x in [L.get("city"), L.get("region"),
+                                     L.get("country")] if x]
+        prev = out.get(code)
+        if prev:
+            # Same job, another country. Keep the longest body and union the
+            # places - never replace.
+            seen = prev["location"].split(", ") if prev["location"] else []
+            for x in here:
+                if x not in seen:
+                    seen.append(x)
+            prev["location"] = ", ".join(seen)
+            body = _detag(j.get("description"))
+            if len(body) > len(prev["text"]):
+                prev["text"] = body
+            continue
+        out[code] = {"text": _detag(j.get("description")),
+                     "title": j.get("title", ""),
+                     "location": ", ".join(dict.fromkeys(here))}
     return out
 
 
-def _smartrecruiters(slug):
-    """Listing carries no body; each posting needs its own call."""
+def _sr_one(slug, pid):
+    det = _json("https://api.smartrecruiters.com/v1/companies/%s/postings/%s"
+                % (slug, pid))
+    sec = (det.get("jobAd") or {}).get("sections") or {}
+    text = "\n\n".join(_detag((sec.get(k) or {}).get("text"))
+                       for k in ("jobDescription", "qualifications",
+                                 "additionalInformation", "companyDescription"))
+    loc = det.get("location") or {}
+    return {"text": text.strip(), "title": det.get("name", ""),
+            "location": ", ".join(str(x) for x in [loc.get("city"), loc.get("region"),
+                                                   loc.get("country")] if x)}
+
+
+def _smartrecruiters(slug, want=None):
+    """Fetch the postings we were asked for, by id, in parallel.
+
+    Three things were wrong with walking the listing instead.
+
+    The listing OMITS live postings. IFS (slug ifs1) returns 261 of them and
+    its "Fullstack AI Engineer (Senior) - IFS Logistics" - ranked 11th at fit
+    85, and open only to the UK and the Netherlands - is in none of them, yet
+    `GET /postings/744000158573069` returns it in full. Paginating the listing
+    would never have found it; asking for the id we already have does.
+
+    The listing also carries no body, so it cost one detail call per posting.
+    Walking 261 of those took longer than the whole rest of the run, and
+    inetum2 has 1,739 - a board that would have stalled it for ten minutes to
+    fetch three jobs we wanted.
+
+    And we always know the ids: they are in the apply URLs. `want` is that set.
+    Only when nothing is asked for does this fall back to the listing.
+    """
     out = {}
-    listing = _json("https://api.smartrecruiters.com/v1/companies/%s/postings?limit=100" % slug)
-    for p in listing.get("content", []):
-        pid = str(p.get("id"))
+    ids = [str(w) for w in (want or [])]
+    if not ids:
+        page = _json("https://api.smartrecruiters.com/v1/companies/%s/postings"
+                     "?limit=100" % slug)
+        ids = [str(p.get("id")) for p in (page.get("content") or [])]
+
+    def one(pid):
         try:
-            det = _json("https://api.smartrecruiters.com/v1/companies/%s/postings/%s" % (slug, pid))
+            return pid, _sr_one(slug, pid)
         except Exception:
-            continue
-        sec = (det.get("jobAd") or {}).get("sections") or {}
-        text = "\n\n".join(_detag((sec.get(k) or {}).get("text"))
-                           for k in ("jobDescription", "qualifications",
-                                     "additionalInformation", "companyDescription"))
-        loc = p.get("location") or {}
-        out[pid] = {"text": text.strip(), "title": p.get("name", ""),
-                    "location": ", ".join(x for x in [loc.get("city"), loc.get("region"),
-                                                      loc.get("country")] if x)}
+            return pid, None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for pid, rec in pool.map(one, ids):
+            if rec:
+                out[pid] = rec
     return out
 
 
@@ -256,9 +315,14 @@ def jsonld(url):
     return best
 
 
-def _board(platform, slug):
+def _board(platform, slug, want=None):
     if platform in EXTRA:
-        return EXTRA[platform](slug)
+        fn = EXTRA[platform]
+        # Only smartrecruiters can act on it; the rest return the whole board
+        # in one call anyway, so asking them for specific ids buys nothing.
+        if fn is _smartrecruiters:
+            return fn(slug, want)
+        return fn(slug)
     if platform == "greenhouse":
         u = "https://boards-api.greenhouse.io/v1/boards/%s/jobs?content=true" % slug
     else:
@@ -302,7 +366,8 @@ def cmd_fetch():
     def one(item):
         (p, s), keys = item
         try:
-            return (p, s), keys, _board(p, s), None
+            want = [targets[k]["job_id"] for k in keys if targets[k].get("job_id")]
+            return (p, s), keys, _board(p, s, want), None
         except Exception as e:
             return (p, s), keys, None, type(e).__name__
 

@@ -105,6 +105,25 @@ A **drop requires `verification >= "posting"`.** A feed summary deleted the
 deciding sentences, so its silence is not evidence. Absent extraction, absent
 field and `"unstated"` all mean **keep**.
 
+## 4b. Reading a run
+
+Before judging any change, read [`docs/FUNNEL.md`](../../../docs/FUNNEL.md) —
+the stage-by-stage meaning of every number, which direction each filter fails
+in, and the arithmetic identity that must close:
+
+```
+input = ranked + posting/board + unscorable + timezone + salary
+total shown = ranked + worth a look
+```
+
+**If either sum stops closing, a stage is dropping silently.** That is the
+highest-priority bug class here: `format_stats` printed nothing for the
+posting/board filter through a whole pipeline run while it removed 191 jobs.
+
+`ranked` is **not** a success metric. A list of 746 where 107 cannot be taken is
+worse than 646 that can. `ranked` down with `summary` down is healthy; `ranked`
+down with `summary` up means dropping on less information.
+
 ## 5. Reach is the constraint, not fit
 
 1,529 jobs fetched yields **17** India-eligible inside the experience band. No

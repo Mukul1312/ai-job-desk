@@ -241,6 +241,70 @@ def load_extractions():
     return out
 
 
+def run_stage(scored_jobs, budget=320, offline=False, quiet=False):
+    """Fetch the real postings and read the new ones. Returns a stats dict.
+
+    Placed BEFORE ranking, not after it. `enrich_epfo` runs after because it
+    was expensive per call; this is $0.00062 a job, and more importantly it
+    feeds a FILTER rather than a score. A filter that runs after ranking needs
+    a second pass to undo decisions already taken, which is where two drop
+    paths drift apart and start reporting different totals.
+
+    It exists because the decay is real, not theoretical: coverage fell from
+    86% to 53% in one night when a live fetch brought in ~690 new postings,
+    and nothing reported it. Jobs without an extraction are KEPT, not flagged,
+    so the list quietly fills with roles nobody can take.
+
+    Never fails the run. No key, no network, a spent budget, an unreachable
+    board - each degrades the stage and leaves the pipeline working.
+    """
+    if offline:
+        return {"skipped": "offline — no network, no quota, by design"}
+
+    import importlib.util
+    import os
+    env = WORKSPACE / ".env"
+    if env.exists():
+        for line in env.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    if not os.getenv("ANTHROPIC_API_KEY", "").strip():
+        return {"skipped": "no ANTHROPIC_API_KEY — postings will not be read, "
+                           "so nothing can be dropped on what they say"}
+
+    # importlib rather than sys.path.insert(0, "tools"): that directory holds
+    # queue.py, which shadows the stdlib `queue` that concurrent.futures needs.
+    spec = importlib.util.spec_from_file_location(
+        "extract_llm", WORKSPACE / "tools" / "extract_llm.py")
+    try:
+        exl = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(exl)
+    except Exception as e:
+        return {"skipped": "could not load tools/extract_llm.py: %s" % e}
+
+    try:
+        exl.cmd_fetch()
+    except Exception as e:
+        # Text already on disk is still usable; a fetch failure is not a run
+        # failure.
+        if not quiet:
+            print("  fetch failed (%s) — extracting from cached text only"
+                  % type(e).__name__)
+
+    # Spend the budget on the best jobs. This is the whole reason the stage
+    # sits after score_jobs rather than before it.
+    order = [j.get("url") for j in
+             sorted((j for j in scored_jobs if j.get("url")),
+                    key=lambda j: float(j.get("match_score") or 0), reverse=True)]
+    try:
+        return exl.cmd_extract(budget=budget, effort="low", max_tokens=4000,
+                               order_urls=order, quiet=True)
+    except Exception as e:
+        return {"skipped": "extraction failed: %s: %s" % (type(e).__name__, e)}
+
+
 BOARD_VERDICTS = WORKSPACE / "data" / "board_verdicts.json"
 
 

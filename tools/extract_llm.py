@@ -447,18 +447,29 @@ def _norm(s):
     return re.sub(r"\s+", " ", (s or "")).strip().lower()
 
 
-def cmd_extract(limit=None, budget=None, effort=None, max_tokens=1600):
+def cmd_extract(limit=None, budget=None, effort=None, max_tokens=1600,
+                order_urls=None, quiet=False):
     index = json.loads(INDEX.read_text(encoding="utf-8"))
     cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
     client = _client()
 
     todo = [k for k in sorted(index) if k not in cache]
+    if order_urls:
+        # Spend the budget on the best jobs, not on fetch order. The
+        # caller passes URLs in descending fit; anything it did not
+        # rank goes last.
+        rank_of = {u: n for n, u in enumerate(order_urls)}
+        todo.sort(key=lambda k: rank_of.get(
+            (index[k] or {}).get("url", ""), len(rank_of)))
     if limit:
         todo = todo[:limit]
     # Mutable one-element counter, exactly as enrich_epfo uses it: a spent budget
     # stops the stage instead of failing the run.
     left = [budget if budget is not None else len(todo)]
-    print("%d cached, %d to extract, budget %d\n" % (len(cache), len(todo), left[0]))
+    if not quiet:
+        print("%d cached, %d to extract, budget %d, effort %s, max_tokens %d\n"
+              % (len(cache), len(todo), left[0], effort or "default(medium)",
+                 max_tokens))
 
     tin = tout = 0
     rejected = 0
@@ -526,16 +537,19 @@ def cmd_extract(limit=None, budget=None, effort=None, max_tokens=1600):
         if i % 25 == 0 or i == len(todo):
             CACHE.write_text(json.dumps(cache, indent=1, sort_keys=True) + "\n",
                              encoding="utf-8", newline="\n")
-            print("  %3d/%d  $%.3f so far" % (i, len(todo),
-                  tin / 1e6 * IN_RATE + tout / 1e6 * OUT_RATE))
+            if not quiet:
+                print("  %3d/%d  $%.3f so far" % (i, len(todo),
+                      tin / 1e6 * IN_RATE + tout / 1e6 * OUT_RATE))
 
     CACHE.write_text(json.dumps(cache, indent=1, sort_keys=True) + "\n",
                      encoding="utf-8", newline="\n")
     cost = tin / 1e6 * IN_RATE + tout / 1e6 * OUT_RATE
-    print("\n  %d extracted, %d had a quote rejected" % (len(cache), rejected))
-    print("  %s in / %s out tokens   $%.3f"
-          % (format(tin, ","), format(tout, ","), cost))
-    return 0
+    if not quiet:
+        print("\n  %d extracted, %d had a quote rejected" % (len(cache), rejected))
+        print("  %s in / %s out tokens   $%.3f"
+              % (format(tin, ","), format(tout, ","), cost))
+    return {"attempted": len(todo), "rejected": rejected, "cost": cost,
+            "in": tin, "out": tout, "cached_total": len(cache)}
 
 
 # --------------------------------------------------------------------------
@@ -615,7 +629,8 @@ def main(argv):
             eff = argv[argv.index("--effort") + 1]
         if "--max-tokens" in argv:
             mt = int(argv[argv.index("--max-tokens") + 1])
-        return cmd_extract(lim, bud, eff, mt)
+        cmd_extract(lim, bud, eff, mt)
+        return 0
     if "--compare" in argv:
         return cmd_compare()
     print(__doc__.strip())

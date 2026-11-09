@@ -66,6 +66,13 @@ def main():
                     help="Report only jobs not seen in a previous run")
     ap.add_argument("--no-resolve", action="store_true",
                     help="Skip working out where each application actually goes")
+    ap.add_argument("--no-extract", action="store_true",
+                    help="skip reading new postings (no spend). --offline "
+                         "always implies this.")
+    ap.add_argument("--extract-budget", type=int, default=320,
+                    help="max postings to read per run (~$0.0006 each, so 320 "
+                         "is about 20 cents). A spent budget stops the stage, "
+                         "it does not fail the run.")
     ap.add_argument("--resolve-budget", type=int, default=60,
                     help="Max listing pages to fetch when resolving destinations")
     ap.add_argument("--prune-days", type=int, default=30,
@@ -109,6 +116,30 @@ def main():
     print("\nScoring against resume...")
     scored_jobs, known_skills = score_jobs(jobs, domain, str(resume_path),
                                            profile_config, profile_meta)
+
+    # Read the real postings BEFORE ranking, because what they say drives a
+    # FILTER, and a filter must run before the thing it filters. enrich_epfo
+    # sits after ranking because it was expensive per call; this is $0.00062 a
+    # job. Running it after would need a second drop pass, which is where two
+    # drop paths drift apart and start reporting different totals.
+    #
+    # --offline never spends. Every rebuild during development uses it.
+    if not args.no_extract:
+        print("\nReading new postings...")
+        import jdextract as _jdx
+        ex = _jdx.run_stage(scored_jobs, budget=args.extract_budget,
+                            offline=args.offline)
+        if ex.get("skipped"):
+            print("  extract: skipped - %s" % ex["skipped"])
+        else:
+            print("  extract: %d read, %d quote(s) rejected, $%.3f spent "
+                  "of a %d-posting budget"
+                  % (ex.get("attempted", 0), ex.get("rejected", 0),
+                     ex.get("cost", 0.0), args.extract_budget))
+            if ex.get("attempted", 0) >= args.extract_budget:
+                print("  extract: BUDGET SPENT - the rest stay unread, and "
+                      "unread means KEPT, never dropped. Raise "
+                      "--extract-budget to read them.")
 
     if not args.no_enrich:
         print("\nChecking India hiring capability...")

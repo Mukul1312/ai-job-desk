@@ -13,13 +13,28 @@ cd "$(dirname "$0")"
 PROFILE="${PROFILE:-mukul-profile.json}"
 META="${META:-profiles/ai-agent-ml.json}"
 DEPLOY=1
+OFFLINE=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
     --no-deploy) DEPLOY=0 ;;
+    --offline)   OFFLINE=1; ARGS+=("$a") ;;
     *) ARGS+=("$a") ;;
   esac
 done
+
+# Which employers demonstrably do not hire in India. Free, no key, ~90s across
+# 332 boards — but boards do not change hourly, so refresh every 3 days rather
+# than every run. Only a definitive no is actionable: 40+ postings with not one
+# India-scoped. Sword Health ranked FIRST on fit until this file existed.
+VERDICTS=data/board_verdicts.json
+if [ "$OFFLINE" = "0" ]; then
+  if [ ! -f "$VERDICTS" ] || [ -n "$(find "$VERDICTS" -mtime +3 2>/dev/null)" ]; then
+    echo "── board verdicts (free) ──────────────────────────────"
+    python tools/board.py --verdicts 2>&1 | tail -4 \
+      || echo "  board sweep failed — ranking will use the existing verdicts"
+  fi
+fi
 
 echo "── search ─────────────────────────────────────────────"
 RUNLOG="$(mktemp 2>/dev/null || echo ./.runlog)"

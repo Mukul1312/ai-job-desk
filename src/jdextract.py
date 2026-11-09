@@ -210,6 +210,37 @@ def extract(text, title=""):
     return out
 
 
+EXTRACT_CACHE = WORKSPACE / "jd_extract_cache.json"
+TEXT_INDEX = WORKSPACE / "data" / "jd_text" / "index.json"
+
+
+def load_extractions():
+    """listing URL -> what a model read in that posting's real text.
+
+    Written by tools/extract_llm.py, which fetches the employer's own page
+    because the feed does not carry it: RemoteRocketship rewrites 100% of its
+    descriptions into a bullet summary, and the sentences that decide
+    reachability do not survive that.
+
+    Returns {} when nothing has been extracted. Every consumer must treat an
+    absent entry as "unknown", never as "no" - 964 of 1,124 jobs have an
+    entry, and the 160 without one are not disqualified by our own silence.
+    """
+    if not (EXTRACT_CACHE.exists() and TEXT_INDEX.exists()):
+        return {}
+    try:
+        cache = json.loads(EXTRACT_CACHE.read_text(encoding="utf-8"))
+        index = json.loads(TEXT_INDEX.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out = {}
+    for key, jd in cache.items():
+        url = (index.get(key) or {}).get("url")
+        if url:
+            out[url] = jd
+    return out
+
+
 CASE_DIRS = {
     "cresta-ai-growth-engineer": "cresta-ai-growth-engineer",
     "streamhub-fullstack-automation": "streamhub-fullstack-automation-ai-eval",

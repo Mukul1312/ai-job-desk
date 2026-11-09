@@ -11,13 +11,27 @@ Hard filters (job is dropped):
     salary below profile.salary.min_lpa, when a salary is stated
     excluded title keywords
 
+    what the posting says about itself - see jd_drop(): a location that
+    excludes India, a years floor far above the profile that the posting
+    does not itself call negotiable, or an intern/manager role
+
 Ranking (survivors are reordered):
-    final = fit  x  region_weight  x  india_boost  x  overlap_bonus
+    final = fit  x  region_weight  x  overlap_bonus  x  tier_weight
+
+The India boost is gone. It multiplied a job's score by an INFERENCE about
+its employer, and RANKING-EVIDENCE.md records 24 observations of that
+inverting the order - every reachable role ranked below every unreachable
+one, and Sword Health, which honestly reported india: unknown and so earned
+no boost, ranked below four unreachable roles scoring lower on fit. A drop
+on a quoted sentence does the job the boost was approximating, without
+promoting anything on a guess.
 
 Every drop is counted and reported, so a filter that is quietly eating
 everything is visible rather than mysterious.
 """
 import re
+
+import jdextract
 import sys
 from pathlib import Path
 
@@ -42,6 +56,45 @@ RESUME_RULES = [
     ("swe", ["software engineer", "backend", "full stack", "full-stack",
              "platform engineer", "node.js", "typescript", "api", "distributed"]),
 ]
+
+
+def jd_drop(jd, profile_config):
+    """Should this posting be removed, and why — on what it says about itself.
+
+    These are DROPS, not weights, and that distinction is the whole point. The
+    India boost promoted a job on an inference about its employer; a drop
+    removes only what the posting itself rules out, and carries the sentence
+    that did it. `docs/RANKING-EVIDENCE.md` has 24 observations of the first
+    approach inverting the ranking.
+
+    Returns (reason, quote) or (None, None). **Silence is never a reason.**
+    Absent extraction, absent field and "unstated" all mean keep: 160 of 1,124
+    jobs have no extraction at all, and none of them is disqualified by that.
+
+    The asymmetry runs one way on purpose. A wrongly dropped job disappears
+    before anyone sees it; a wrongly kept one costs a few seconds of reading.
+    So every threshold here is set loose, and `experience_negotiable`
+    overrides the years rule outright — 13 postings say years are not the
+    barrier, in 13 different phrasings, and dropping those would remove the
+    most reachable roles in the set.
+    """
+    if not jd:
+        return None, None
+
+    if jd.get("india_status") == "explicit_no":
+        return "india_excluded", jd.get("india_quote")
+
+    years = float((profile_config.get("years_experience") or 0))
+    tol = profile_config.get("experience_tolerance_years", 4)
+    floor = jd.get("experience_floor_years")
+    if (floor is not None and years and floor > years + tol
+            and not jd.get("experience_negotiable")):
+        return f"wants {floor}+ years", jd.get("experience_quote")
+
+    if jd.get("seniority") in {"intern", "manager"}:
+        return f"role is {jd['seniority']}", jd.get("seniority_quote")
+
+    return None, None
 
 
 def role_tier(job, cfg):
@@ -183,13 +236,31 @@ def rank_jobs(jobs, profile_config):
     variants = profile_config.get("resume_variants", {})
     tier_cfg = profile_config.get("role_tiers", {})
     pref_h = float(tz_cfg.get("preferred_overlap_hours", 6.0))
+    extracted = jdextract.load_extractions()
 
     kept, unscored = [], []
     stats = {"total": len(jobs), "dropped_timezone": 0,
              "dropped_salary": 0, "dropped_unscored": 0,
+             "dropped_by_posting": 0, "by_drop_reason": {}, "jd_coverage": 0,
              "by_region": {}, "by_india": {}}
 
     for job in jobs:
+        # What the posting says about itself, read from the employer's own
+        # page. Checked first: no amount of fit makes a role you cannot take
+        # worth ranking, and this is the only filter that carries a quotation.
+        jd = extracted.get(job.get("url") or "")
+        if jd:
+            stats["jd_coverage"] += 1
+            job["jd"] = jd
+            why, quote = jd_drop(jd, profile_config)
+            if why:
+                stats["dropped_by_posting"] += 1
+                stats["by_drop_reason"][why] = (
+                    stats["by_drop_reason"].get(why, 0) + 1)
+                job["dropped_because"] = why
+                job["dropped_quote"] = quote
+                continue
+
         fit = job.get("match_score")
         # No usable JD text. The title already passed the domain gate, so the
         # role is probably relevant — we simply cannot grade the fit. Boards
@@ -243,15 +314,16 @@ def rank_jobs(jobs, profile_config):
             # our own gap would quietly bury two-thirds of the pipeline.
             w = 1.0
             stats["location_inferred"] = stats.get("location_inferred", 0) + 1
-        india = job.get("india") or {"boost": 1.0, "confidence": "unknown",
-                                     "evidence": []}
-        boost = float(india.get("boost", 1.0))
-        # The India-capability boost exists to surface FOREIGN employers who
-        # can legally hire you. For a role already located in India it says
-        # nothing — applying it there is a blanket 25% bonus for Indian jobs,
-        # which silently overrides the equal region weighting.
-        if region == "india":
-            boost = 1.0
+        # Still carried and still reported — enrich.py's EPFO and EOR signals
+        # are real evidence about an employer, and worth seeing. It is only
+        # the MULTIPLIER that is gone: company-level capability answered a
+        # different question from the one being asked of it, and promoting on
+        # it put every unreachable role above every reachable one.
+        india = job.get("india")
+        if not isinstance(india, dict):
+            # export_web flattens this to a string for the site payload, and
+            # replaying that payload back through ranking used to crash here.
+            india = {"confidence": india or "unknown", "evidence": []}
 
         # Reward overlap beyond the preferred threshold, mildly and with a cap,
         # so timezone never swamps an otherwise better-matched job.
@@ -260,12 +332,12 @@ def rank_jobs(jobs, profile_config):
 
         tier, tw = role_tier(job, tier_cfg)
         job["role_tier"] = tier
-        job["final_score"] = round(fit * w * boost * overlap_bonus * tw, 1)
+        job["final_score"] = round(fit * w * overlap_bonus * tw, 1)
         job["rank_reasons"] = [
             f"fit {fit}",
             f"{tier} x{tw}",
             f"{region} x{w}" + ("" if real_loc else " (location not supplied by source)"),
-            f"india:{india.get('confidence')} x{boost}",
+            f"india:{india.get('confidence')} (reported, not scored)",
             f"overlap {'n/a' if oh is None else str(oh)+'h'} x{round(overlap_bonus,2)}",
         ]
         job["resume"] = recommend_resume(job, variants, tier)
@@ -309,9 +381,15 @@ def format_stats(stats):
 
 def rescore(ranked_jobs, profile_config):
     """
-    Recompute final scores after a late enrichment pass changed the India
-    boosts, then re-sort. Cheaper and safer than re-running rank_jobs, which
-    would re-apply the hard filters to jobs that already passed them.
+    Recompute final scores and re-sort, without re-applying the hard filters
+    to jobs that already passed them.
+
+    This existed to pick up India boosts that enrich_epfo set after ranking.
+    The boost is gone, so a late India confirmation no longer moves anything -
+    it is reported, not scored. The function is kept because tier weights and
+    region weights are still config-driven and a caller may legitimately
+    re-run it, but if nothing else starts changing post-rank it is dead code
+    and should go.
     """
     weights = profile_config.get("region_weights", {})
     tz_cfg = profile_config.get("timezone", {})
@@ -326,17 +404,16 @@ def rescore(ranked_jobs, profile_config):
         region = tz.get("region", "unknown")
         w = float(weights.get(region, weights.get("unknown", 0.8)))
         india = job.get("india") or {}
-        boost = 1.0 if region == "india" else float(india.get("boost", 1.0))
         oh = tz.get("overlap_hours")
         overlap_bonus = 1.0 if oh is None else min(1.15, 0.9 + (oh / pref_h) * 0.2)
         tier, tw = role_tier(job, tier_cfg)
         job["role_tier"] = tier
-        job["final_score"] = round(fit * w * boost * overlap_bonus * tw, 1)
+        job["final_score"] = round(fit * w * overlap_bonus * tw, 1)
         job["rank_reasons"] = [
             f"fit {fit}",
             f"{tier} x{tw}",
             f"{region} x{w}",
-            f"india:{india.get('confidence','unknown')} x{boost}",
+            f"india:{india.get('confidence','unknown')} (reported, not scored)",
             f"overlap {'n/a' if oh is None else str(oh)+'h'} x{round(overlap_bonus,2)}",
         ]
 

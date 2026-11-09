@@ -58,7 +58,7 @@ RESUME_RULES = [
 ]
 
 
-def jd_drop(jd, profile_config):
+def jd_drop(jd, profile_config, board=None):
     """Should this posting be removed, and why — on what it says about itself.
 
     These are DROPS, not weights, and that distinction is the whole point. The
@@ -78,6 +78,17 @@ def jd_drop(jd, profile_config):
     barrier, in 13 different phrasings, and dropping those would remove the
     most reachable roles in the set.
     """
+    # Board evidence first: it outranks the posting, because a posting that
+    # says nothing about location is not evidence, and 72 postings with no
+    # Indian role among them is. Sword Health ranked FIRST on pure fit after
+    # the boost came out - highest fit of nineteen, and unreachable - because
+    # its posting is silent and only its board says so.
+    if board and board.get("verdict") == "no_india":
+        return ("employer has no India roles",
+                "%s: %d open postings on their own board, %d engineering, "
+                "none India-scoped" % (board.get("company", "?"),
+                                       board.get("open", 0), board.get("eng", 0)))
+
     if not jd:
         return None, None
 
@@ -237,6 +248,7 @@ def rank_jobs(jobs, profile_config):
     tier_cfg = profile_config.get("role_tiers", {})
     pref_h = float(tz_cfg.get("preferred_overlap_hours", 6.0))
     extracted = jdextract.load_extractions()
+    verdicts = jdextract.load_board_verdicts()
 
     kept, unscored = [], []
     stats = {"total": len(jobs), "dropped_timezone": 0,
@@ -249,10 +261,12 @@ def rank_jobs(jobs, profile_config):
         # page. Checked first: no amount of fit makes a role you cannot take
         # worth ranking, and this is the only filter that carries a quotation.
         jd = extracted.get(job.get("url") or "")
+        board = verdicts.get(jdextract.company_key(job.get("company")))
         if jd:
             stats["jd_coverage"] += 1
             job["jd"] = jd
-            why, quote = jd_drop(jd, profile_config)
+        if jd or board:
+            why, quote = jd_drop(jd, profile_config, board)
             if why:
                 stats["dropped_by_posting"] += 1
                 stats["by_drop_reason"][why] = (
@@ -364,6 +378,15 @@ def format_stats(stats):
         f"({stats.get('unscored_relevant', 0)} kept as 'worth a look'), "
         f"{stats['dropped_timezone']} timezone, {stats['dropped_salary']} salary",
     ]
+    # The most consequential filter was also the most invisible: it ran for a
+    # whole pipeline run removing 191 jobs without printing a number.
+    if stats.get("dropped_by_posting"):
+        lines.append(
+            f"    dropped on the posting/board: {stats['dropped_by_posting']}"
+            f"  (from {stats.get('jd_coverage', 0)} postings read in full)")
+        for why, n in sorted(stats.get("by_drop_reason", {}).items(),
+                             key=lambda x: -x[1])[:6]:
+            lines.append(f"        {n:>4}  {why}")
     if stats["by_region"]:
         reg = ", ".join(f"{k} {v}" for k, v in
                         sorted(stats["by_region"].items(), key=lambda x: -x[1]))

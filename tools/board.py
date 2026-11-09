@@ -37,6 +37,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 # `tools/queue.py` shadows the stdlib `queue` whenever a script in this folder is
@@ -397,11 +398,98 @@ def cmd_known(show_all=False, workers=12):
     return 0
 
 
+VERDICTS = WORKSPACE / "data" / "board_verdicts.json"
+
+
+def cmd_verdicts(workers=12, min_open=40):
+    """Record which employers demonstrably do not hire in India.
+
+    This is the inverse of the India boost, and the inversion is the point.
+
+    `enrich.py` answers "can this COMPANY hire in India" and observation 2
+    records what went wrong with it: ClickHouse can, the role could not, and
+    promoting the role on the company's capability put an unreachable job
+    first. A positive company fact says nothing about a particular role.
+
+    A negative one does. An employer with 72 open postings and not one scoped
+    to India has no Indian entity, and that constrains every role it lists.
+    Same asymmetry as EPFO, pointing the other way: a hit proves nothing about
+    the role, a comprehensive miss proves something about the company.
+
+    So only a definitive no is written: at least `min_open` postings on the
+    board, zero India-scoped, and zero even ambiguous. Anything less is
+    recorded as "inconclusive" and changes nothing.
+    """
+    index = known_slugs()
+    print("checking %d boards for a definitive no\n" % len(index))
+
+    def one(item):
+        (platform, slug), company = item
+        try:
+            return (platform, slug), company, survey(platform, slug), None
+        except Exception as e:
+            return (platform, slug), company, None, type(e).__name__
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(one, sorted(index.items(), key=lambda kv: kv[1].lower())))
+
+    out, nos = {}, []
+    for (platform, slug), company, jobs, err in results:
+        if err or not jobs:
+            continue
+        eng = [j for j in jobs if j["eng"]]
+        india = sum(1 for j in eng if j["reach"] == "india")
+        maybe = sum(1 for j in eng if j["reach"] == "maybe")
+        definitive_no = (len(jobs) >= min_open and india == 0 and maybe == 0)
+        out["%s/%s" % (platform, slug)] = {
+            "company": company, "open": len(jobs), "eng": len(eng),
+            "india": india, "maybe": maybe,
+            "verdict": "no_india" if definitive_no else
+                       ("hires_india" if india else "inconclusive"),
+            "checked": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        }
+        if definitive_no:
+            nos.append((company or slug, len(jobs), len(eng)))
+
+    # Also keyed by company name, so src/rank.py can join without parsing
+    # apply URLs or importing from tools/ (where queue.py shadows the stdlib
+    # `queue` and breaks anything that wants a thread pool).
+    by_company = {}
+    for v in out.values():
+        name = re.sub(r"[^a-z0-9]+", "", (v.get("company") or "").lower())
+        if not name:
+            continue
+        prev = by_company.get(name)
+        # A company can appear on two boards. Keep the more informative row:
+        # any India-scoped role anywhere outranks a no from a different board.
+        if prev and (prev["verdict"] == "hires_india" or prev["open"] > v["open"]):
+            continue
+        by_company[name] = v
+
+    VERDICTS.parent.mkdir(parents=True, exist_ok=True)
+    VERDICTS.write_text(
+        json.dumps({"by_board": out, "by_company": by_company,
+                    "min_open": min_open}, indent=1, sort_keys=True) + "\n",
+        encoding="utf-8", newline="\n")
+    kinds = {}
+    for v in out.values():
+        kinds[v["verdict"]] = kinds.get(v["verdict"], 0) + 1
+    print("  %d boards recorded: %s" % (len(out), kinds))
+    print("\n  DEFINITIVE NO - %d employers, %d+ postings each, zero India-scoped:"
+          % (len(nos), min_open))
+    for co, n, e in sorted(nos, key=lambda x: -x[1])[:25]:
+        print("    %-34s %4d open, %3d engineering" % (co[:34], n, e))
+    print("\n  written to %s" % VERDICTS)
+    return 0
+
+
 def main(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
     show_all = "--all" in argv
     as_json = "--json" in argv
 
+    if "--verdicts" in argv:
+        return cmd_verdicts()
     if "--known" in argv:
         return cmd_known(show_all)
 

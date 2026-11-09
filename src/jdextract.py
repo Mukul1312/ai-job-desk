@@ -241,6 +241,35 @@ def load_extractions():
     return out
 
 
+BOARD_VERDICTS = WORKSPACE / "data" / "board_verdicts.json"
+
+
+def load_board_verdicts():
+    """normalised company name -> what that employer's whole board shows.
+
+    Written by `tools/board.py --verdicts`, free and keyless. Only a
+    DEFINITIVE NO is actionable: an employer with 40+ open postings and not
+    one scoped to India, or even ambiguous, has no Indian entity.
+
+    This is the India boost inverted, and the inversion is why it is sound.
+    A company that *can* hire in India says nothing about a particular role -
+    observation 2, ClickHouse, where exactly that inference put an
+    unreachable job first. A company with no Indian presence at all
+    constrains every role it lists.
+    """
+    if not BOARD_VERDICTS.exists():
+        return {}
+    try:
+        return (json.loads(BOARD_VERDICTS.read_text(encoding="utf-8"))
+                .get("by_company") or {})
+    except Exception:
+        return {}
+
+
+def company_key(name):
+    return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
+
+
 CASE_DIRS = {
     "cresta-ai-growth-engineer": "cresta-ai-growth-engineer",
     "streamhub-fullstack-automation": "streamhub-fullstack-automation-ai-eval",

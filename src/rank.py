@@ -83,8 +83,55 @@ def _pat_hit(title, pat):
     return re.search(r"\b" + re.escape(pat) + r"\b", title) is not None
 
 
-def recommend_resume(job, variants):
-    """Which of Mukul's resume variants to send. Falls back to 'ai'."""
+# Which resumes a tier may send, best first. The tier is decided from the title
+# by role_tier(); this says what that verdict permits.
+#
+# An `ai` role may legitimately want the `ml` resume - "Applied ML Engineer" is
+# tiered ai and ml is the right send. It may never want `swe`: that is the
+# failure this table exists to stop.
+TIER_RESUMES = {
+    "ai":       ["ai", "ml"],
+    "ml":       ["ml", "ai"],
+    "fde":      ["fde", "ai", "swe"],
+    "frontend": ["frontend", "swe"],
+    "swe":      ["swe", "ai", "frontend"],
+}
+
+
+def recommend_resume(job, variants, tier=None):
+    """Which of Mukul's resume variants to send.
+
+    The tier comes first. `role_tier()` already decides what kind of role this
+    is, from the title alone and with word-boundary care, and the resume choice
+    used to ignore it completely - scoring title, tags and 1,200 characters of
+    description with equal weight.
+
+    Description volume then decided everything. The `swe` signals - "software
+    engineer", "backend", "api", "typescript", "distributed" - occur in every
+    engineering description written, including AI ones, so swe won on count.
+    Measured on the 2026-11-09 run: **190 of 348 ai-tier roles were sent a
+    non-ai resume, 113 of them `swe`** - among them "Senior AI Software
+    Engineer", "Software Engineer - Applied AI", and eventfirst, whose own
+    write-up had already concluded by hand that `ai` was the right send.
+
+    So: the tier picks the family, and only the TITLE chooses within it. A
+    description may no longer overrule what the role is called.
+    """
+    title = (job.get("title") or "").lower()
+    allowed = TIER_RESUMES.get(tier or "")
+    if allowed:
+        pool = [v for v in allowed if v in variants]
+        if pool:
+            best, best_hits = pool[0], 0      # the tier's own resume by default
+            for variant in pool:
+                signals = dict(RESUME_RULES).get(variant, [])
+                hits = sum(1 for s in signals if s in title)
+                if hits > best_hits:
+                    best, best_hits = variant, hits
+            return best
+
+    # No tier, or a tier with no mapping ("other"): nothing has established what
+    # the role is, so the description is the only evidence there is.
     blob = (f"{job.get('title','')} {job.get('tags','')} "
             f"{job.get('description','')[:1200]}").lower()
     best, best_hits = None, 0
@@ -92,9 +139,7 @@ def recommend_resume(job, variants):
         if variant not in variants:
             continue
         hits = sum(1 for s in signals if s in blob)
-        # Title matches count double — the title is what the role actually is.
-        title = job.get("title", "").lower()
-        hits += sum(1 for s in signals if s in title)
+        hits += sum(1 for s in signals if s in title)   # the title counts double
         if hits > best_hits:
             best, best_hits = variant, hits
     return best or ("ai" if "ai" in variants else next(iter(variants), None))
@@ -159,8 +204,9 @@ def rank_jobs(jobs, profile_config):
                 job.get("location", "") if location_is_real(job) else "", tz_cfg)
             if tz_u["passes"]:
                 job["tz"] = tz_u
-                job["resume"] = recommend_resume(job, variants)
                 job["role_tier"] = role_tier(job, tier_cfg)[0]
+                job["resume"] = recommend_resume(job, variants,
+                                                 job["role_tier"])
                 unscored.append(job)
             continue
 
@@ -222,7 +268,7 @@ def rank_jobs(jobs, profile_config):
             f"india:{india.get('confidence')} x{boost}",
             f"overlap {'n/a' if oh is None else str(oh)+'h'} x{round(overlap_bonus,2)}",
         ]
-        job["resume"] = recommend_resume(job, variants)
+        job["resume"] = recommend_resume(job, variants, tier)
         stats.setdefault("by_tier", {})
         stats["by_tier"][tier] = stats["by_tier"].get(tier, 0) + 1
 
